@@ -24,6 +24,8 @@ struct ContentView: View {
             switch sheet {
             case .addTarget:
                 AddTargetView(model: model, showsCancelButton: true)
+            case .editTarget(let target):
+                AddTargetView(model: model, existingTarget: target, showsCancelButton: true)
             case .manageTargets:
                 ManageTargetsView(model: model)
             }

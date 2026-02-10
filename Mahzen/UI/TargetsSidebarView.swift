@@ -45,6 +45,14 @@ struct TargetsSidebarView: View {
                             TargetRowView(target: target)
                                 .tag(target.id)
                                 .contextMenu {
+                                    Button {
+                                        model.presentSheet(.editTarget(target))
+                                    } label: {
+                                        Label("Edit Target", systemImage: "pencil")
+                                    }
+
+                                    Divider()
+
                                     Button("Delete Target", role: .destructive) {
                                         model.deleteTargets([target.id])
                                     }

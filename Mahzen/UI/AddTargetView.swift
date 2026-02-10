@@ -10,7 +10,10 @@ import SwiftUI
 struct AddTargetView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var model: AppModel
+    var existingTarget: StorageTarget? = nil
     var showsCancelButton: Bool = true
+
+    private var isEditing: Bool { existingTarget != nil }
 
     @State private var provider: StorageTarget.Provider = .other
 
@@ -64,7 +67,27 @@ struct AddTargetView: View {
             .frame(minWidth: 600, idealWidth: 690, maxWidth: 760, minHeight: 520, idealHeight: 560, maxHeight: 640)
         }
         .onAppear {
-            applyProviderPresetIfNeeded()
+            if let target = existingTarget {
+                provider = target.provider
+                endpoint = target.endpoint.absoluteString
+                bucket = target.pinnedBuckets.first ?? ""
+                region = target.region ?? ""
+                name = target.name
+                forcePathStyle = target.forcePathStyle
+
+                if let creds = try? model.loadCredentials(targetId: target.id) {
+                    accessKeyId = creds.accessKeyId
+                    secretAccessKey = creds.secretAccessKey
+                    sessionToken = creds.sessionToken ?? ""
+                }
+
+                let hasAdvancedContent = !target.name.isEmpty || !(target.region ?? "").isEmpty
+                if hasAdvancedContent {
+                    isAdvancedExpanded = true
+                }
+            } else {
+                applyProviderPresetIfNeeded()
+            }
             withAnimation(.snappy(duration: 0.35)) { appear = true }
         }
         .animation(.snappy(duration: 0.22), value: provider)
@@ -85,7 +108,7 @@ struct AddTargetView: View {
                         )
                         .frame(width: 44, height: 44)
 
-                    Image(systemName: "externaldrive.badge.plus")
+                    Image(systemName: isEditing ? "pencil" : "externaldrive.badge.plus")
                         .font(.system(size: 18, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(AppTheme.accent)
@@ -94,10 +117,12 @@ struct AddTargetView: View {
                 .opacity(appear ? 1.0 : 0.0)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Add Storage Target")
+                    Text(isEditing ? "Edit Storage Target" : "Add Storage Target")
                         .font(.system(size: 16, weight: .semibold))
 
-                    Text("Connect AWS S3 or any S3-compatible provider with endpoint + keys.")
+                    Text(isEditing
+                         ? "Update endpoint, credentials, or display name for this target."
+                         : "Connect AWS S3 or any S3-compatible provider with endpoint + keys.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -289,7 +314,7 @@ struct AddTargetView: View {
                         Image(systemName: "checkmark")
                             .font(.system(size: 12, weight: .bold))
                     }
-                    Text("Save")
+                    Text(isEditing ? "Update" : "Save")
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .frame(minWidth: 96)
@@ -373,6 +398,7 @@ struct AddTargetView: View {
         let trimmedBucket = bucket.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let target = StorageTarget(
+            id: existingTarget?.id ?? UUID(),
             name: resolvedName,
             provider: provider,
             endpoint: endpointURL,
@@ -391,6 +417,12 @@ struct AddTargetView: View {
 
         do {
             try model.addTarget(target, credentials: creds)
+            if isEditing {
+                Task {
+                    await model.refreshBuckets()
+                    await model.refreshObjects()
+                }
+            }
             dismiss()
         } catch {
             withAnimation(.snappy(duration: 0.2)) {

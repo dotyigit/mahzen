@@ -11,6 +11,7 @@ struct ManageTargetsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var model: AppModel
     @State private var isAddingTarget: Bool = false
+    @State private var editingTarget: StorageTarget?
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,14 @@ struct ManageTargetsView: View {
                         HStack {
                             TargetRowView(target: target)
                             Spacer()
+                            Button {
+                                editingTarget = target
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Edit")
+
                             Button(role: .destructive) {
                                 model.deleteTargets([target.id])
                             } label: {
@@ -39,6 +48,14 @@ struct ManageTargetsView: View {
                             .help("Delete")
                         }
                         .contextMenu {
+                            Button {
+                                editingTarget = target
+                            } label: {
+                                Label("Edit Target", systemImage: "pencil")
+                            }
+
+                            Divider()
+
                             Button("Delete Target", role: .destructive) {
                                 model.deleteTargets([target.id])
                             }
@@ -61,6 +78,9 @@ struct ManageTargetsView: View {
             }
             .navigationDestination(isPresented: $isAddingTarget) {
                 AddTargetView(model: model, showsCancelButton: false)
+            }
+            .navigationDestination(item: $editingTarget) { target in
+                AddTargetView(model: model, existingTarget: target, showsCancelButton: false)
             }
         }
         .frame(width: 620, height: 600)

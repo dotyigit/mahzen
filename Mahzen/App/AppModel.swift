@@ -10,11 +10,18 @@ import Combine
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum SheetDestination: String, Identifiable {
+    enum SheetDestination: Identifiable, Equatable {
         case addTarget
+        case editTarget(StorageTarget)
         case manageTargets
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .addTarget: return "addTarget"
+            case .editTarget(let target): return "editTarget-\(target.id.uuidString)"
+            case .manageTargets: return "manageTargets"
+            }
+        }
     }
 
     @Published private(set) var targets: [StorageTarget] = []
@@ -255,6 +262,10 @@ final class AppModel: ObservableObject {
             relative.removeLast()
         }
         return relative.isEmpty ? full : relative
+    }
+
+    func loadCredentials(targetId: UUID) throws -> S3Credentials {
+        try credentialsStore.loadCredentials(targetId: targetId)
     }
 
     private func client(for target: StorageTarget) throws -> S3Client {
