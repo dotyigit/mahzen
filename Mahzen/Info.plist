@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>SUFeedURL</key>
-	<string>https://mahzen.dev/appcast.xml</string>
+	<string>https://dotyigit.github.io/mahzen/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>2x5VdihXSm2EciWeS5tIMvYv0OIZNMBCGAXJMX3Nk/U=</string>
 	<key>SUEnableAutomaticChecks</key>

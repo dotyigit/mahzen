@@ -10,6 +10,11 @@ env:
   APP_NAME: "Mahzen"
   BUNDLE_ID: "com.dotyigit.Mahzen"
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build-and-release:
     runs-on: macos-15
@@ -186,7 +191,7 @@ jobs:
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
             <channel>
               <title>Mahzen Updates</title>
-              <link>https://mahzen.dev/appcast.xml</link>
+              <link>https://dotyigit.github.io/mahzen/appcast.xml</link>
               <description>Most recent changes with links to updates.</description>
               <language>en</language>
               <item>
@@ -218,28 +223,15 @@ jobs:
             "$DMG_PATH#Mahzen-${VERSION}.dmg" \
             "$ZIP_PATH#Mahzen-${VERSION}.zip"
 
-      - name: Deploy appcast to gh-pages
+      - name: Prepare appcast for Pages
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p "$RUNNER_TEMP/appcast-site"
+          cp "$RUNNER_TEMP/appcast.xml" "$RUNNER_TEMP/appcast-site/appcast.xml"
 
-          git fetch origin gh-pages || true
-
-          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
-            git worktree add "$RUNNER_TEMP/gh-pages" gh-pages
-          else
-            git worktree add --orphan "$RUNNER_TEMP/gh-pages" gh-pages
-            cd "$RUNNER_TEMP/gh-pages"
-            git commit --allow-empty -m "Initialize gh-pages"
-            cd -
-          fi
-
-          cp "$RUNNER_TEMP/appcast.xml" "$RUNNER_TEMP/gh-pages/appcast.xml"
-
-          cd "$RUNNER_TEMP/gh-pages"
-          git add appcast.xml
-          git commit -m "Update appcast for v${{ steps.version.outputs.version }}" || true
-          git push origin gh-pages
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/appcast-site
 
       - name: Update Homebrew cask
         env:
@@ -293,3 +285,14 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+
+  deploy-appcast:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
