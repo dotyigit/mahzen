@@ -97,6 +97,31 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/export-options.plist" \
             -exportPath "$RUNNER_TEMP/export"
 
+      - name: Re-sign Sparkle helpers
+        run: |
+          APP_PATH="$RUNNER_TEMP/export/$APP_NAME.app"
+          FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+          IDENTITY="Developer ID Application"
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+
+          # Sign from deepest to shallowest so outer signatures stay valid.
+          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
+          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
+          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            "$FRAMEWORK/Versions/B/Autoupdate"
+          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            "$FRAMEWORK"
+
+          # Re-sign the main app to pick up the updated framework signatures.
+          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
+            --entitlements "Mahzen/Mahzen.entitlements" \
+            "$APP_PATH"
+
+          # Verify everything is properly signed.
+          codesign --verify --deep --strict "$APP_PATH"
+
       - name: Notarize app
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
