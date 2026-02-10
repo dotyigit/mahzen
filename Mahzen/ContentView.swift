@@ -14,7 +14,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             BucketsSidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 360)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 360)
         } detail: {
             ObjectsBrowserView(model: model)
         }

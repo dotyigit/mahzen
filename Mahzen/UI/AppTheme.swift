@@ -23,41 +23,18 @@ enum AppTheme {
     static let dividerOpacity: Double = 0.5
 
     static func sidebarBackground() -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .windowBackgroundColor).opacity(0.65),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            // Subtle tint wash so the app doesn't look like a template.
-            RadialGradient(
-                colors: [
-                    accent.opacity(0.16),
-                    .clear,
-                ],
-                center: .topLeading,
-                startRadius: 20,
-                endRadius: 420
-            )
-        }
+        LinearGradient(
+            colors: [
+                accent.opacity(0.10),
+                Color(nsColor: .windowBackgroundColor),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     static func contentBackground() -> some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            LinearGradient(
-                colors: [
-                    .clear,
-                    accent.opacity(0.07),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
+        Color(nsColor: .windowBackgroundColor)
     }
 }
 

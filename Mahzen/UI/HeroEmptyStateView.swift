@@ -65,7 +65,6 @@ struct HeroEmptyStateView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.contentBackground())
         .onAppear {
             withAnimation(.snappy(duration: 0.35)) {
                 appear = true

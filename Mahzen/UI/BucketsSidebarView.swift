@@ -11,10 +11,7 @@ import AppKit
 struct BucketsSidebarView: View {
     @ObservedObject var model: AppModel
     @State private var bucketSearchText: String = ""
-    @State private var openBucketText: String = ""
     @FocusState private var focusedField: FocusField?
-
-    @State private var isHoveringOpenAction: Bool = false
 
     /// Local selection bridges — avoids writing @Published during view updates.
     @State private var localTargetId: UUID?
@@ -22,7 +19,6 @@ struct BucketsSidebarView: View {
 
     private enum FocusField: Hashable {
         case bucketFilter
-        case openBucket
     }
 
     var body: some View {
@@ -43,7 +39,7 @@ struct BucketsSidebarView: View {
                     bucketsList
                 }
                 .padding(.leading, AppTheme.pagePadding)
-                .padding(.trailing, AppTheme.pagePadding + 6)
+                .padding(.trailing, AppTheme.pagePadding)
                 .padding(.top, AppTheme.pagePadding)
             }
         }
@@ -74,60 +70,16 @@ struct BucketsSidebarView: View {
 
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    Text("Target")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-
-                    Picker("", selection: $localTargetId) {
-                        Text("Select Target").tag(UUID?.none)
-                        ForEach(model.targets) { t in
-                            Text(t.name).tag(UUID?.some(t.id))
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 10)
-                .frame(height: AppTheme.fieldHeight)
-                .appGlassFieldChrome(isFocused: false)
-
-                HStack(spacing: 4) {
-                    Button {
-                        model.presentSheet(.addTarget)
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.plain)
-                    .appIconButtonChrome()
-                    .help("Add Target")
-
-                    Button {
-                        model.presentSheet(.manageTargets)
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .buttonStyle(.plain)
-                    .appIconButtonChrome()
-                    .help("Manage Targets")
-
-                    Button {
-                        Task {
-                            model.refreshTargets()
-                            await model.refreshBuckets()
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.plain)
-                    .appIconButtonChrome()
-                    .help("Refresh Buckets")
+            Picker("Target", selection: $localTargetId) {
+                Text("Select Target").tag(UUID?.none)
+                ForEach(model.targets) { t in
+                    Text(t.name).tag(UUID?.some(t.id))
                 }
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
@@ -154,86 +106,45 @@ struct BucketsSidebarView: View {
                 .frame(height: AppTheme.fieldHeight)
                 .appGlassFieldChrome(isFocused: focusedField == .bucketFilter)
 
+                Button {
+                    model.presentSheet(.addTarget)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .appIconButtonChrome()
+                .help("Add Target")
+
+                Button {
+                    model.presentSheet(.manageTargets)
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.plain)
+                .appIconButtonChrome()
+                .help("Manage Targets")
+
+                Button {
+                    Task {
+                        model.refreshTargets()
+                        await model.refreshBuckets()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .appIconButtonChrome()
+                .help("Refresh Buckets")
+
                 if model.isLoadingBuckets {
                     ProgressView()
                         .controlSize(.small)
                         .transition(.opacity)
                 }
             }
-
-            HStack(spacing: 10) {
-                openBucketRow
-            }
         }
         .cardBackground()
         .animation(.snappy(duration: 0.25), value: model.isLoadingBuckets)
-    }
-
-    private var openBucketRow: some View {
-        let canPin = model.selectedTarget != nil && !openBucketTrimmed.isEmpty
-
-        return HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "link")
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-
-                TextField("Open bucket…", text: $openBucketText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .focused($focusedField, equals: .openBucket)
-                    .onSubmit { pinOpenBucketIfPossible() }
-
-                if !openBucketText.isEmpty {
-                    Button {
-                        openBucketText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear")
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: AppTheme.fieldHeight)
-            .appGlassFieldChrome(isFocused: focusedField == .openBucket)
-
-            Button {
-                pinOpenBucketIfPossible()
-            } label: {
-                Image(systemName: "arrow.right.circle.fill")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(canPin ? AppTheme.accent : .secondary)
-                    .frame(width: AppTheme.fieldHeight, height: AppTheme.fieldHeight)
-                    .scaleEffect((isHoveringOpenAction && canPin) ? 1.06 : 1.0)
-                    .opacity(canPin ? 1.0 : 0.55)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canPin)
-            .help("Connect to a bucket directly")
-            .onHover { hovering in
-                withAnimation(.snappy(duration: 0.16)) {
-                    isHoveringOpenAction = hovering
-                }
-            }
-            .animation(.snappy(duration: 0.18), value: canPin)
-        }
-    }
-
-    private var openBucketTrimmed: String {
-        openBucketText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func pinOpenBucketIfPossible() {
-        let trimmed = openBucketTrimmed
-        guard model.selectedTarget != nil, !trimmed.isEmpty else { return }
-        Task { await model.pinBucket(trimmed) }
-        openBucketText = ""
-        focusedField = nil
     }
 
     private var bucketsList: some View {
@@ -252,6 +163,7 @@ struct BucketsSidebarView: View {
                                 BucketRowView(name: bucket.name, isPinned: true)
                                     .tag(bucket.name)
                                     .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                                     .contextMenu {
                                         bucketContextMenu(bucket.name, isPinned: true)
                                     }
@@ -264,13 +176,14 @@ struct BucketsSidebarView: View {
                             BucketRowView(name: bucket.name)
                                 .tag(bucket.name)
                                 .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                                 .contextMenu {
                                     bucketContextMenu(bucket.name, isPinned: false)
                                 }
                         }
                     }
                 }
-                .listStyle(.sidebar)
+                .listStyle(.inset)
                 .tint(AppTheme.accent)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)

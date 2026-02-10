@@ -40,7 +40,7 @@ struct MahzenApp: App {
             }
         }
 
-        MenuBarExtra("Mahzen", systemImage: "externaldrive.connected.to.line.below") {
+        MenuBarExtra("Mahzen", systemImage: "archivebox") {
             MenuBarView(model: model)
         }
         .menuBarExtraStyle(.window)

@@ -451,10 +451,10 @@ struct AddTargetView: View {
             forcePathStyle = true
         case .digitalOcean:
             endpoint = "https://nyc3.digitaloceanspaces.com"
-            forcePathStyle = false
+            forcePathStyle = true
         case .hetzner:
             endpoint = "https://fsn1.your-objectstorage.com"
-            forcePathStyle = false
+            forcePathStyle = true
         case .minio:
             endpoint = "http://localhost:9000"
             forcePathStyle = true

@@ -22,8 +22,13 @@ final class TargetsStore: ObservableObject {
     func reload() {
         do {
             let data = try Data(contentsOf: fileURL)
-            let decoded = try JSONDecoder().decode([StorageTarget].self, from: data)
+            var decoded = try JSONDecoder().decode([StorageTarget].self, from: data)
+            var didMigrate = false
+            for i in decoded.indices {
+                if decoded[i].migrateIfNeeded() { didMigrate = true }
+            }
             self.targets = decoded.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            if didMigrate { try? persist(self.targets) }
         } catch {
             // Missing file or decode errors should not prevent app startup.
             self.targets = []

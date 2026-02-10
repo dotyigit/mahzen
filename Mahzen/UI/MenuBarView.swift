@@ -104,7 +104,7 @@ struct MenuBarView: View {
                     )
                     .frame(width: 24, height: 24)
 
-                Image(systemName: "externaldrive.connected.to.line.below")
+                Image(systemName: "archivebox")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppTheme.accent)
             }

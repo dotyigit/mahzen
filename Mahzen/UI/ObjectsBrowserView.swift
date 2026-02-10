@@ -87,7 +87,7 @@ struct ObjectsBrowserView: View {
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
-        .navigationTitle(model.selectedBucket ?? "Objects")
+        .navigationTitle("Mahzen")
         .inspector(isPresented: $isInspectorPresented) {
             ObjectInspectorView(
                 model: model,
@@ -265,7 +265,7 @@ struct ObjectsBrowserView: View {
                 fileListHeaderRow
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    .listRowBackground(Color(nsColor: .controlBackgroundColor))
 
                 ForEach(model.filteredEntries, id: \.id) { entry in
                     ObjectListRowView(
@@ -280,7 +280,7 @@ struct ObjectsBrowserView: View {
                     .tag(entry.id)
                     .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    .listRowBackground(Color(nsColor: .controlBackgroundColor))
                     .contextMenu { contextMenu(for: entry) }
                     .draggable(entry.keyOrPrefix) {
                         Label(model.displayName(for: entry), systemImage: entry.isFolder ? "folder" : "doc")
@@ -289,7 +289,6 @@ struct ObjectsBrowserView: View {
             }
             .listStyle(.plain)
             .id((model.selectedBucket ?? "") + ":" + model.prefix)
-            .tint(AppTheme.accent)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
 
