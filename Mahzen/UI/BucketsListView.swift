@@ -22,11 +22,13 @@ struct BucketsListView: View {
                     action: { model.presentSheet(.addTarget) }
                 )
             } else {
-                List(selection: $model.selectedBucket) {
+                List {
                     Section {
                         ForEach(filteredBuckets) { bucket in
-                            BucketRowView(name: bucket.name)
-                                .tag(bucket.name)
+                            BucketRowView(name: bucket.name, isSelected: model.selectedBucket == bucket.name)
+                                .contentShape(Rectangle())
+                                .onTapGesture { model.selectedBucket = bucket.name }
+                                .listRowBackground(Color.clear)
                         }
                     } header: {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {

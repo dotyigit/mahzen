@@ -260,12 +260,12 @@ struct ObjectsBrowserView: View {
 
     private var fileList: some View {
         ZStack {
-            List(selection: $selection) {
+            List {
                 // Column header – lives inside the List so columns align.
                 fileListHeaderRow
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(Color(nsColor: .controlBackgroundColor))
+                    .listRowBackground(Color.clear)
 
                 ForEach(model.filteredEntries, id: \.id) { entry in
                     ObjectListRowView(
@@ -277,10 +277,21 @@ struct ObjectsBrowserView: View {
                         modifiedWidth: modifiedColumnWidth,
                         isSelected: selection.contains(entry.id)
                     )
-                    .tag(entry.id)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if NSEvent.modifierFlags.contains(.command) {
+                            if selection.contains(entry.id) {
+                                selection.remove(entry.id)
+                            } else {
+                                selection.insert(entry.id)
+                            }
+                        } else {
+                            selection = [entry.id]
+                        }
+                    }
                     .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(Color(nsColor: .controlBackgroundColor))
+                    .listRowBackground(Color.clear)
                     .contextMenu { contextMenu(for: entry) }
                     .draggable(entry.keyOrPrefix) {
                         Label(model.displayName(for: entry), systemImage: entry.isFolder ? "folder" : "doc")

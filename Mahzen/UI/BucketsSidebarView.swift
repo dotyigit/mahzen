@@ -156,14 +156,16 @@ struct BucketsSidebarView: View {
                     systemImage: "externaldrive"
                 )
             } else {
-                List(selection: $localBucket) {
+                List {
                     if !pinnedBucketNames.isEmpty {
                         Section("Pinned") {
                             ForEach(filteredPinnedBuckets) { bucket in
-                                BucketRowView(name: bucket.name, isPinned: true)
-                                    .tag(bucket.name)
+                                BucketRowView(name: bucket.name, isPinned: true, isSelected: localBucket == bucket.name)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { localBucket = bucket.name }
                                     .listRowSeparator(.hidden)
                                     .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                                    .listRowBackground(Color.clear)
                                     .contextMenu {
                                         bucketContextMenu(bucket.name, isPinned: true)
                                     }
@@ -173,10 +175,12 @@ struct BucketsSidebarView: View {
 
                     Section("Buckets") {
                         ForEach(filteredOtherBuckets) { bucket in
-                            BucketRowView(name: bucket.name)
-                                .tag(bucket.name)
+                            BucketRowView(name: bucket.name, isSelected: localBucket == bucket.name)
+                                .contentShape(Rectangle())
+                                .onTapGesture { localBucket = bucket.name }
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+                                .listRowBackground(Color.clear)
                                 .contextMenu {
                                     bucketContextMenu(bucket.name, isPinned: false)
                                 }
@@ -184,7 +188,6 @@ struct BucketsSidebarView: View {
                     }
                 }
                 .listStyle(.inset)
-                .tint(AppTheme.accent)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .overlay {

@@ -10,6 +10,9 @@ import SwiftUI
 struct BucketRowView: View {
     let name: String
     var isPinned: Bool = false
+    var isSelected: Bool = false
+
+    @State private var isHovering: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -43,5 +46,33 @@ struct BucketRowView: View {
             }
         }
         .padding(.vertical, 2)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(backgroundFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(backgroundStroke)
+                )
+        )
+        .onHover { hovering in
+            withAnimation(.snappy(duration: 0.18)) {
+                isHovering = hovering
+            }
+        }
+        .animation(.snappy(duration: 0.18), value: isSelected)
+    }
+
+    private var backgroundFill: Color {
+        if isSelected { return AppTheme.accent.opacity(0.16) }
+        if isHovering { return AppTheme.hoverFill }
+        return .clear
+    }
+
+    private var backgroundStroke: Color {
+        if isSelected { return AppTheme.accent.opacity(0.32) }
+        return .clear
     }
 }
