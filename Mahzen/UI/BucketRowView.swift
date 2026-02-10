@@ -45,7 +45,7 @@ struct BucketRowView: View {
                     .accessibilityLabel("Pinned")
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -66,13 +66,13 @@ struct BucketRowView: View {
     }
 
     private var backgroundFill: Color {
-        if isSelected { return AppTheme.accent.opacity(0.16) }
+        if isSelected { return Color.primary.opacity(0.09) }
         if isHovering { return AppTheme.hoverFill }
         return .clear
     }
 
     private var backgroundStroke: Color {
-        if isSelected { return AppTheme.accent.opacity(0.32) }
+        if isSelected { return AppTheme.strokeStrong }
         return .clear
     }
 }

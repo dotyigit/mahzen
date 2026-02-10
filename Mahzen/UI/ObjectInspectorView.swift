@@ -309,6 +309,7 @@ private struct InspectorRow: View {
 
             Text(value)
                 .font(.system(size: 12, weight: .regular, design: .rounded))
+                .monospacedDigit()
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -340,7 +341,6 @@ private struct InspectorRow: View {
             }
         }
         .padding(.vertical, 3)
-        .padding(.horizontal, 6)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isHovering ? AppTheme.hoverFill.opacity(0.85) : Color.clear)

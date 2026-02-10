@@ -11,12 +11,10 @@ struct ObjectsBrowserView: View {
     @ObservedObject var model: AppModel
 
     @State private var selection: Set<S3BrowserEntry.ID> = []
+    @State private var selectionAnchorId: S3BrowserEntry.ID?
     @State private var isInspectorPresented: Bool = true
-    @State private var keyDownMonitor: Any?
     @State private var isDropTargeted: Bool = false
     @State private var listWidth: CGFloat = 600
-    @State private var mouseMonitor: Any?
-    @State private var isListHovered: Bool = false
     @FocusState private var focusedField: FocusField?
 
     private enum FocusField: Hashable {
@@ -51,6 +49,14 @@ struct ObjectsBrowserView: View {
                             subtitle: "Select a bucket to browse objects.",
                             systemImage: "archivebox"
                         )
+                    } else if !model.isLoadingObjects, let error = model.objectLoadError, !error.isEmpty {
+                        HeroEmptyStateView(
+                            title: "Couldn’t Load Objects",
+                            subtitle: error,
+                            systemImage: "exclamationmark.triangle",
+                            actionTitle: "Retry",
+                            action: { Task { await model.refreshObjects() } }
+                        )
                     } else if !model.isLoadingObjects, model.filteredEntries.isEmpty {
                         HeroEmptyStateView(
                             title: model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty Folder" : "No Matches",
@@ -80,11 +86,11 @@ struct ObjectsBrowserView: View {
             .padding(.horizontal, AppTheme.pagePadding)
 
             // Drop zone overlay.
-            if isDropTargeted {
+            if isDropTargeted, model.selectedBucket != nil {
                 dropOverlay
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+        .onDrop(of: [.fileURL], isTargeted: dropTargetBinding) { providers in
             handleDrop(providers)
         }
         .navigationTitle("Mahzen")
@@ -132,6 +138,15 @@ struct ObjectsBrowserView: View {
                 .keyboardShortcut("r", modifiers: [.command])
 
                 Button {
+                    _ = openSelection()
+                } label: {
+                    Image(systemName: "arrow.right.circle")
+                }
+                .help("Open Folder")
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(!canOpenSelection || focusedField == .search)
+
+                Button {
                     withAnimation(.snappy(duration: 0.25)) {
                         isInspectorPresented.toggle()
                     }
@@ -143,13 +158,13 @@ struct ObjectsBrowserView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: model.transferManager.hasVisibleTransfers)
-        .onAppear { installKeyMonitorIfNeeded(); installMouseMonitorIfNeeded() }
-        .onDisappear { uninstallKeyMonitor(); uninstallMouseMonitor() }
         .onChange(of: model.selectedBucket) {
             selection.removeAll()
+            selectionAnchorId = nil
         }
         .onChange(of: model.prefix) {
             selection.removeAll()
+            selectionAnchorId = nil
         }
         .onChange(of: selection) {
             let selectedIds = selection
@@ -177,6 +192,25 @@ struct ObjectsBrowserView: View {
         return model.filteredEntries.contains { entry in
             selectedIds.contains(entry.id)
         }
+    }
+
+    private var canOpenSelection: Bool {
+        let selectedSet = selection
+        guard let entry = model.filteredEntries.first(where: { selectedSet.contains($0.id) }) else { return false }
+        return entry.isFolder
+    }
+
+    private var dropTargetBinding: Binding<Bool> {
+        Binding(
+            get: { model.selectedBucket != nil && isDropTargeted },
+            set: { newValue in
+                if model.selectedBucket != nil {
+                    isDropTargeted = newValue
+                } else {
+                    isDropTargeted = false
+                }
+            }
+        )
     }
 
     // MARK: - Header
@@ -268,27 +302,24 @@ struct ObjectsBrowserView: View {
                     .listRowBackground(Color.clear)
 
                 ForEach(model.filteredEntries, id: \.id) { entry in
-                    ObjectListRowView(
-                        entry: entry,
-                        name: model.displayName(for: entry),
-                        size: rowSizeText(for: entry),
-                        modified: showModifiedColumn ? rowModifiedText(for: entry) : nil,
-                        sizeWidth: sizeColumnWidth,
-                        modifiedWidth: modifiedColumnWidth,
-                        isSelected: selection.contains(entry.id)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if NSEvent.modifierFlags.contains(.command) {
-                            if selection.contains(entry.id) {
-                                selection.remove(entry.id)
-                            } else {
-                                selection.insert(entry.id)
-                            }
-                        } else {
-                            selection = [entry.id]
+                    Button {
+                        handleRowTap(for: entry)
+                        if (NSApp.currentEvent?.clickCount ?? 1) >= 2, entry.isFolder {
+                            openEntry(entry)
                         }
+                    } label: {
+                        ObjectListRowView(
+                            entry: entry,
+                            name: model.displayName(for: entry),
+                            size: rowSizeText(for: entry),
+                            modified: showModifiedColumn ? rowModifiedText(for: entry) : nil,
+                            sizeWidth: sizeColumnWidth,
+                            modifiedWidth: modifiedColumnWidth,
+                            isSelected: selection.contains(entry.id)
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -308,7 +339,6 @@ struct ObjectsBrowserView: View {
                     .transition(.opacity)
             }
         }
-        .onHover { isListHovered = $0 }
         .background(GeometryReader { geo in
             Color.clear.preference(key: ListWidthKey.self, value: geo.size.width)
         })
@@ -506,6 +536,7 @@ struct ObjectsBrowserView: View {
     private func openEntry(_ entry: S3BrowserEntry) {
         guard case .folder(let pfx) = entry else { return }
         selection.removeAll()
+        selectionAnchorId = nil
         Task { await model.enterFolder(pfx) }
     }
 
@@ -628,52 +659,46 @@ struct ObjectsBrowserView: View {
         return true
     }
 
-    // MARK: - Key Monitor
+    private func handleRowTap(for entry: S3BrowserEntry) {
+        let id = entry.id
+        let flags = NSEvent.modifierFlags.intersection([.shift, .command])
 
-    private func installKeyMonitorIfNeeded() {
-        guard keyDownMonitor == nil else { return }
-
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if model.activeSheet != nil {
-                return event
-            }
-
-            // Enter/Return key to open folder.
-            if let firstResponder = NSApp.keyWindow?.firstResponder, firstResponder is NSTextView {
-                return event
-            }
-
-            if event.keyCode == 36 || event.keyCode == 76 {
-                if openSelection() {
-                    return nil
-                }
-            }
-            return event
+        if flags.contains(.shift) {
+            applyRangeSelection(to: id)
+            return
         }
+
+        if flags.contains(.command) {
+            if selection.contains(id) {
+                selection.remove(id)
+            } else {
+                selection.insert(id)
+            }
+            selectionAnchorId = id
+            return
+        }
+
+        selection = [id]
+        selectionAnchorId = id
     }
 
-    private func uninstallKeyMonitor() {
-        if let monitor = keyDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyDownMonitor = nil
+    private func applyRangeSelection(to id: S3BrowserEntry.ID) {
+        let ids = model.filteredEntries.map(\.id)
+        guard let targetIndex = ids.firstIndex(of: id) else {
+            selection = [id]
+            selectionAnchorId = id
+            return
         }
-    }
 
-    private func installMouseMonitorIfNeeded() {
-        guard mouseMonitor == nil else { return }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-            guard event.clickCount == 2, isListHovered else { return event }
-            if model.activeSheet != nil { return event }
-            if openSelection() { return nil }
-            return event
+        guard let anchor = selectionAnchorId, let anchorIndex = ids.firstIndex(of: anchor) else {
+            selection = [id]
+            selectionAnchorId = id
+            return
         }
-    }
 
-    private func uninstallMouseMonitor() {
-        if let monitor = mouseMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseMonitor = nil
-        }
+        let lower = min(anchorIndex, targetIndex)
+        let upper = max(anchorIndex, targetIndex)
+        selection = Set(ids[lower...upper])
     }
 
 }
@@ -736,13 +761,13 @@ private struct ObjectListRowView: View {
     }
 
     private var backgroundFill: Color {
-        if isSelected { return AppTheme.accent.opacity(0.16) }
+        if isSelected { return Color.primary.opacity(0.09) }
         if isHovering { return AppTheme.hoverFill }
         return .clear
     }
 
     private var backgroundStroke: Color {
-        if isSelected { return AppTheme.accent.opacity(0.32) }
+        if isSelected { return AppTheme.strokeStrong }
         return .clear
     }
 

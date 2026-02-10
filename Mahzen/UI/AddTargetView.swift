@@ -70,7 +70,7 @@ struct AddTargetView: View {
             if let target = existingTarget {
                 provider = target.provider
                 endpoint = target.endpoint.absoluteString
-                bucket = target.pinnedBuckets.first ?? ""
+                bucket = target.defaultBucket ?? (target.pinnedBuckets.count == 1 ? target.pinnedBuckets[0] : "")
                 region = target.region ?? ""
                 name = target.name
                 forcePathStyle = target.forcePathStyle
@@ -396,6 +396,7 @@ struct AddTargetView: View {
         let resolvedName = trimmedName.isEmpty ? (endpointURL.host ?? provider.rawValue) : trimmedName
         let trimmedRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBucket = bucket.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preservedPinnedBuckets = existingTarget?.pinnedBuckets ?? []
 
         let target = StorageTarget(
             id: existingTarget?.id ?? UUID(),
@@ -404,7 +405,8 @@ struct AddTargetView: View {
             endpoint: endpointURL,
             region: trimmedRegion.isEmpty ? nil : trimmedRegion,
             forcePathStyle: forcePathStyle,
-            pinnedBuckets: trimmedBucket.isEmpty ? [] : [trimmedBucket]
+            defaultBucket: trimmedBucket.isEmpty ? nil : trimmedBucket,
+            pinnedBuckets: preservedPinnedBuckets
         )
 
         let creds = S3Credentials(

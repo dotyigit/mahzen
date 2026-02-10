@@ -49,6 +49,8 @@ struct ContentView: View {
                 model.cancelAllMetricsTasks()
                 model.selectedBucket = nil
                 model.prefix = ""
+                model.searchText = ""
+                model.objectLoadError = nil
                 model.clearEntries()
                 await model.refreshBuckets()
                 await model.refreshObjects()
@@ -60,6 +62,8 @@ struct ContentView: View {
             Task {
                 model.cancelAllMetricsTasks()
                 model.prefix = ""
+                model.searchText = ""
+                model.objectLoadError = nil
                 model.clearEntries()
                 await model.refreshObjects()
             }

@@ -26,6 +26,8 @@ struct StorageTarget: Identifiable, Codable, Hashable {
     /// SigV4 signing region. Optional for UX; if nil/empty we infer a sensible default per provider/endpoint.
     var region: String?
     var forcePathStyle: Bool
+    /// Optional bucket used for direct access when ListBuckets is unavailable.
+    var defaultBucket: String?
     /// Optional, user-provided buckets (useful when ListBuckets is not permitted).
     var pinnedBuckets: [String]
 
@@ -36,6 +38,7 @@ struct StorageTarget: Identifiable, Codable, Hashable {
         case endpoint
         case region
         case forcePathStyle
+        case defaultBucket
         case pinnedBuckets
     }
 
@@ -46,6 +49,7 @@ struct StorageTarget: Identifiable, Codable, Hashable {
         endpoint: URL,
         region: String? = nil,
         forcePathStyle: Bool,
+        defaultBucket: String? = nil,
         pinnedBuckets: [String] = []
     ) {
         self.id = id
@@ -54,6 +58,7 @@ struct StorageTarget: Identifiable, Codable, Hashable {
         self.endpoint = endpoint
         self.region = region
         self.forcePathStyle = forcePathStyle
+        self.defaultBucket = defaultBucket
         self.pinnedBuckets = pinnedBuckets
     }
 
@@ -65,6 +70,7 @@ struct StorageTarget: Identifiable, Codable, Hashable {
         self.endpoint = try c.decode(URL.self, forKey: .endpoint)
         self.region = try c.decodeIfPresent(String.self, forKey: .region)
         self.forcePathStyle = try c.decode(Bool.self, forKey: .forcePathStyle)
+        self.defaultBucket = try c.decodeIfPresent(String.self, forKey: .defaultBucket)
         self.pinnedBuckets = try c.decodeIfPresent([String].self, forKey: .pinnedBuckets) ?? []
     }
 
@@ -76,6 +82,7 @@ struct StorageTarget: Identifiable, Codable, Hashable {
         try c.encode(endpoint, forKey: .endpoint)
         try c.encodeIfPresent(region, forKey: .region)
         try c.encode(forcePathStyle, forKey: .forcePathStyle)
+        try c.encodeIfPresent(defaultBucket, forKey: .defaultBucket)
         try c.encode(pinnedBuckets, forKey: .pinnedBuckets)
     }
 }

@@ -12,6 +12,7 @@ struct ManageTargetsView: View {
     @ObservedObject var model: AppModel
     @State private var isAddingTarget: Bool = false
     @State private var editingTarget: StorageTarget?
+    @State private var targetPendingDeletion: StorageTarget?
 
     var body: some View {
         NavigationStack {
@@ -40,7 +41,7 @@ struct ManageTargetsView: View {
                             .help("Edit")
 
                             Button(role: .destructive) {
-                                model.deleteTargets([target.id])
+                                requestDelete(target)
                             } label: {
                                 Image(systemName: "trash")
                             }
@@ -57,7 +58,7 @@ struct ManageTargetsView: View {
                             Divider()
 
                             Button("Delete Target", role: .destructive) {
-                                model.deleteTargets([target.id])
+                                requestDelete(target)
                             }
                         }
                     }
@@ -82,8 +83,34 @@ struct ManageTargetsView: View {
             .navigationDestination(item: $editingTarget) { target in
                 AddTargetView(model: model, existingTarget: target, showsCancelButton: false)
             }
+            .confirmationDialog(
+                "Delete Target?",
+                isPresented: Binding(
+                    get: { targetPendingDeletion != nil },
+                    set: { isPresented in
+                        if !isPresented { targetPendingDeletion = nil }
+                    }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let target = targetPendingDeletion {
+                    Button("Delete \(target.name)", role: .destructive) {
+                        model.deleteTargets([target.id])
+                        targetPendingDeletion = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    targetPendingDeletion = nil
+                }
+            } message: {
+                Text("This removes the target configuration and stored credentials from Keychain.")
+            }
         }
         .frame(width: 620, height: 600)
         .tint(AppTheme.accent)
+    }
+
+    private func requestDelete(_ target: StorageTarget) {
+        targetPendingDeletion = target
     }
 }

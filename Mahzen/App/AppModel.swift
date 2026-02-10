@@ -41,6 +41,7 @@ final class AppModel: ObservableObject {
 
     @Published var isLoadingBuckets: Bool = false
     @Published var isLoadingObjects: Bool = false
+    @Published var objectLoadError: String?
     @Published var errorMessage: String?
 
     @Published var activeSheet: SheetDestination?
@@ -148,7 +149,10 @@ final class AppModel: ObservableObject {
         isLoadingBuckets = true
         defer { isLoadingBuckets = false }
 
+        let directBucket = normalizedBucketName(target.defaultBucket)
         let pinnedNames = normalizedBucketNames(target.pinnedBuckets)
+        let fallbackNames = mergedPinnedAndDirectBuckets(pinnedNames: pinnedNames, directBucket: directBucket)
+        let preferredBucket = directBucket ?? pinnedNames.first
         let pinnedSet = Set(pinnedNames)
 
         do {
@@ -164,29 +168,38 @@ final class AppModel: ObservableObject {
                 merged.append(fetchedByName[name] ?? S3Bucket(name: name, creationDate: nil))
             }
 
+            // Direct-access bucket can be independent from pinned buckets.
+            if let directBucket,
+               !pinnedSet.contains(directBucket),
+               fetchedByName[directBucket] == nil {
+                merged.append(S3Bucket(name: directBucket, creationDate: nil))
+            }
+
             // Then the rest.
             merged.append(contentsOf: fetched.filter { !pinnedSet.contains($0.name) })
 
             buckets = merged
-            selectBucketIfNeeded(preferred: pinnedNames.first)
+            selectBucketIfNeeded(preferred: preferredBucket)
         } catch {
-            // If we have pinned buckets, allow the user to continue without the (optional) ListBuckets permission.
-            if pinnedNames.isEmpty {
+            // If we have pinned or direct buckets, allow access without ListBuckets permission.
+            if fallbackNames.isEmpty {
                 errorMessage = error.localizedDescription
             }
-            buckets = pinnedNames.map { S3Bucket(name: $0, creationDate: nil) }
-            selectBucketIfNeeded(preferred: pinnedNames.first)
+            buckets = fallbackNames.map { S3Bucket(name: $0, creationDate: nil) }
+            selectBucketIfNeeded(preferred: preferredBucket)
         }
     }
 
     func refreshObjects(showLoading: Bool = true) async {
         guard let target = selectedTarget, let bucket = selectedBucket, !bucket.isEmpty else {
             entries = []
+            objectLoadError = nil
             return
         }
 
         if showLoading { isLoadingObjects = true }
         defer { if showLoading { isLoadingObjects = false } }
+        objectLoadError = nil
 
         do {
             let client = try client(for: target)
@@ -208,8 +221,9 @@ final class AppModel: ObservableObject {
                 .map { S3BrowserEntry.object($0) }
 
             entries = (folderEntries + objectEntries).sorted(by: Self.entrySort(prefix: prefix))
+            objectLoadError = nil
         } catch {
-            errorMessage = error.localizedDescription
+            objectLoadError = error.localizedDescription
             entries = []
         }
     }
@@ -342,6 +356,21 @@ final class AppModel: ObservableObject {
         return out
     }
 
+    private func normalizedBucketName(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func mergedPinnedAndDirectBuckets(pinnedNames: [String], directBucket: String?) -> [String] {
+        var out = pinnedNames
+        guard let directBucket else { return out }
+        if !out.contains(where: { $0.caseInsensitiveCompare(directBucket) == .orderedSame }) {
+            out.append(directBucket)
+        }
+        return out
+    }
+
     private static func parentPrefix(of prefix: String) -> String {
         guard !prefix.isEmpty else { return "" }
         var p = prefix
@@ -378,7 +407,9 @@ final class AppModel: ObservableObject {
     /// Fetches buckets for a specific target without changing model state. Used by the menu bar.
     func listBuckets(forTargetId targetId: UUID) async -> [S3Bucket] {
         guard let target = targets.first(where: { $0.id == targetId }) else { return [] }
+        let directBucket = normalizedBucketName(target.defaultBucket)
         let pinnedNames = normalizedBucketNames(target.pinnedBuckets)
+        let fallbackNames = mergedPinnedAndDirectBuckets(pinnedNames: pinnedNames, directBucket: directBucket)
         let pinnedSet = Set(pinnedNames)
 
         do {
@@ -386,14 +417,19 @@ final class AppModel: ObservableObject {
             let fetched = try await client.listBuckets()
             let fetchedByName = Dictionary(uniqueKeysWithValues: fetched.map { ($0.name, $0) })
             var merged: [S3Bucket] = []
-            merged.reserveCapacity(pinnedNames.count + fetched.count)
+            merged.reserveCapacity(fallbackNames.count + fetched.count)
             for name in pinnedNames {
                 merged.append(fetchedByName[name] ?? S3Bucket(name: name, creationDate: nil))
+            }
+            if let directBucket,
+               !pinnedSet.contains(directBucket),
+               fetchedByName[directBucket] == nil {
+                merged.append(S3Bucket(name: directBucket, creationDate: nil))
             }
             merged.append(contentsOf: fetched.filter { !pinnedSet.contains($0.name) })
             return merged
         } catch {
-            return pinnedNames.map { S3Bucket(name: $0, creationDate: nil) }
+            return fallbackNames.map { S3Bucket(name: $0, creationDate: nil) }
         }
     }
 
@@ -429,6 +465,11 @@ final class AppModel: ObservableObject {
     func ensureMetricsForBucket(_ bucket: String) {
         guard let target = selectedTarget, !bucket.isEmpty else { return }
         ensureMetrics(target: target, bucket: bucket, prefix: "", priority: .utility)
+    }
+
+    func ensureMetricsForBucket(_ bucket: String, targetId: UUID, priority: TaskPriority = .utility) {
+        guard let target = targets.first(where: { $0.id == targetId }), !bucket.isEmpty else { return }
+        ensureMetrics(target: target, bucket: bucket, prefix: "", priority: priority)
     }
 
     func metricsErrorForSelectedBucket(prefix: String) -> String? {

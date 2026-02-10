@@ -50,6 +50,7 @@ struct BucketsSidebarView: View {
         }
         .onChange(of: localTargetId) {
             guard localTargetId != model.selectedTargetId else { return }
+            bucketSearchText = ""
             Task { model.selectedTargetId = localTargetId }
         }
         .onChange(of: model.selectedTargetId) {
@@ -156,39 +157,22 @@ struct BucketsSidebarView: View {
                     systemImage: "externaldrive"
                 )
             } else {
-                List {
-                    if !pinnedBucketNames.isEmpty {
-                        Section("Pinned") {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        if !filteredPinnedBuckets.isEmpty {
+                            bucketSectionHeader("Pinned")
                             ForEach(filteredPinnedBuckets) { bucket in
-                                BucketRowView(name: bucket.name, isPinned: true, isSelected: localBucket == bucket.name)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { localBucket = bucket.name }
-                                    .listRowSeparator(.hidden)
-                                    .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
-                                    .listRowBackground(Color.clear)
-                                    .contextMenu {
-                                        bucketContextMenu(bucket.name, isPinned: true)
-                                    }
+                                bucketRowButton(bucket, isPinned: true)
                             }
                         }
-                    }
 
-                    Section("Buckets") {
+                        bucketSectionHeader("Buckets")
                         ForEach(filteredOtherBuckets) { bucket in
-                            BucketRowView(name: bucket.name, isSelected: localBucket == bucket.name)
-                                .contentShape(Rectangle())
-                                .onTapGesture { localBucket = bucket.name }
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
-                                .listRowBackground(Color.clear)
-                                .contextMenu {
-                                    bucketContextMenu(bucket.name, isPinned: false)
-                                }
+                            bucketRowButton(bucket, isPinned: false)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .overlay {
                     if !model.isLoadingBuckets, filteredPinnedBuckets.isEmpty, filteredOtherBuckets.isEmpty {
@@ -203,6 +187,30 @@ struct BucketsSidebarView: View {
                 }
                 .animation(.snappy(duration: 0.25), value: model.buckets)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func bucketSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+    }
+
+    private func bucketRowButton(_ bucket: S3Bucket, isPinned: Bool) -> some View {
+        Button {
+            localBucket = bucket.name
+        } label: {
+            BucketRowView(name: bucket.name, isPinned: isPinned, isSelected: localBucket == bucket.name)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            bucketContextMenu(bucket.name, isPinned: isPinned)
         }
     }
 

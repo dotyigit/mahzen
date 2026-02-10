@@ -12,31 +12,34 @@ struct BreadcrumbBar: View {
     var onSelectPrefix: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            CrumbButton(
-                title: "Root",
-                systemImage: "house",
-                isCurrent: prefix.isEmpty,
-                action: { selectPrefix("") }
-            )
-
-            ForEach(crumbs, id: \.value) { c in
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
                 CrumbButton(
-                    title: c.title,
-                    systemImage: "folder",
-                    isCurrent: c.value == prefix,
-                    action: { selectPrefix(c.value) }
+                    title: "Root",
+                    systemImage: "house",
+                    isCurrent: prefix.isEmpty,
+                    action: { selectPrefix("") }
                 )
+
+                ForEach(crumbs, id: \.value) { c in
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    CrumbButton(
+                        title: c.title,
+                        systemImage: "folder",
+                        isCurrent: c.value == prefix,
+                        action: { selectPrefix(c.value) }
+                    )
+                }
             }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .scrollIndicators(.hidden)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.controlCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.controlCornerRadius, style: .continuous)

@@ -36,17 +36,21 @@ struct TransferPanelView: View {
 
     private var summaryBar: some View {
         HStack(spacing: 10) {
-            // Tappable area for expand/collapse — everything except Clear Done.
+            // Tappable area for expand/collapse — everything except clear actions.
             HStack(spacing: 10) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
 
                 let completed = transferManager.completedCount
+                let failed = transferManager.failedCount
+                let cancelled = transferManager.cancelledCount
                 let total = transferManager.transfers.count
-                Text("\(completed) of \(total) transfer\(total == 1 ? "" : "s") complete")
+                Text(summaryText(completed: completed, failed: failed, cancelled: cancelled, total: total))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 if transferManager.isTransferring {
                     ProgressView(value: transferManager.aggregateProgress)
@@ -68,14 +72,27 @@ struct TransferPanelView: View {
                 }
             }
 
-            // Clear Done button — outside the tap gesture area so it always works.
+            // Clear buttons — outside the tap gesture area so they always work.
             if isExpanded {
-                Button("Clear Done") {
-                    transferManager.clearCompleted()
+                HStack(spacing: 6) {
+                    if transferManager.completedCount > 0 {
+                        Button("Clear Completed") {
+                            transferManager.clearCompleted()
+                        }
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+
+                    if transferManager.failedCount > 0 || transferManager.cancelledCount > 0 {
+                        Button("Clear Finished") {
+                            transferManager.clearFinished()
+                        }
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
                 }
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
             }
         }
         .padding(.horizontal, 12)
@@ -174,5 +191,12 @@ struct TransferPanelView: View {
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func summaryText(completed: Int, failed: Int, cancelled: Int, total: Int) -> String {
+        guard failed > 0 || cancelled > 0 else {
+            return "\(completed) of \(total) transfer\(total == 1 ? "" : "s") complete"
+        }
+        return "\(completed) done, \(failed) failed, \(cancelled) cancelled (\(total) total)"
     }
 }

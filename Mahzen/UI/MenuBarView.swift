@@ -88,6 +88,12 @@ struct MenuBarView: View {
         }
         isLoadingLocalBuckets = true
         localBuckets = await model.listBuckets(forTargetId: targetId)
+        for bucket in localBuckets.prefix(12) {
+            model.ensureMetricsForBucket(bucket.name, targetId: targetId)
+        }
+        if let bucket = effectiveBucket {
+            model.ensureMetricsForBucket(bucket, targetId: targetId, priority: .userInitiated)
+        }
         isLoadingLocalBuckets = false
     }
 
@@ -240,8 +246,16 @@ struct MenuBarView: View {
                                 onSelect: {
                                     highlightedBucket = bucket.name
                                     model.menuBarBucket = bucket.name
+                                    if let targetId = effectiveTargetId {
+                                        model.ensureMetricsForBucket(bucket.name, targetId: targetId, priority: .userInitiated)
+                                    }
                                 },
-                                onDrop: { urls in handleDrop(urls, toBucket: bucket.name) }
+                                onDrop: { urls in handleDrop(urls, toBucket: bucket.name) },
+                                onEnsureMetrics: {
+                                    if let targetId = effectiveTargetId {
+                                        model.ensureMetricsForBucket(bucket.name, targetId: targetId)
+                                    }
+                                }
                             )
                         }
                     }
@@ -280,8 +294,8 @@ struct MenuBarView: View {
 
                 Spacer()
 
-                if model.transferManager.isTransferring {
-                    Text("\(model.transferManager.completedCount)/\(model.transferManager.transfers.count)")
+                if model.transferManager.hasVisibleTransfers {
+                    Text(transferCompactStatus)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.tertiary)
                         .monospacedDigit()
@@ -331,13 +345,26 @@ struct MenuBarView: View {
 
                 Spacer()
 
-                if model.transferManager.transfers.contains(where: \.isTerminal) {
-                    Button("Clear Done") {
-                        model.transferManager.clearCompleted()
+                if model.transferManager.completedCount > 0 || model.transferManager.failedCount > 0 || model.transferManager.cancelledCount > 0 {
+                    HStack(spacing: 6) {
+                        if model.transferManager.completedCount > 0 {
+                            Button("Clear Completed") {
+                                model.transferManager.clearCompleted()
+                            }
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+
+                        if model.transferManager.failedCount > 0 || model.transferManager.cancelledCount > 0 {
+                            Button("Clear Finished") {
+                                model.transferManager.clearFinished()
+                            }
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
                     }
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
                 }
             }
             .padding(.horizontal, AppTheme.pagePadding)
@@ -467,6 +494,17 @@ struct MenuBarView: View {
         Divider().opacity(AppTheme.dividerOpacity)
     }
 
+    private var transferCompactStatus: String {
+        let completed = model.transferManager.completedCount
+        let failed = model.transferManager.failedCount
+        let cancelled = model.transferManager.cancelledCount
+        let total = model.transferManager.transfers.count
+        if failed == 0, cancelled == 0 {
+            return "\(completed)/\(total)"
+        }
+        return "\(completed)/\(failed)/\(cancelled)"
+    }
+
 }
 
 // MARK: - Shared Drag Helpers
@@ -505,6 +543,7 @@ private struct MenuBarBucketRow: View {
     let byteFormatter: ByteCountFormatter
     let onSelect: () -> Void
     let onDrop: ([URL]) -> Void
+    let onEnsureMetrics: () -> Void
 
     @State private var isDropTargeted = false
 
@@ -566,6 +605,9 @@ private struct MenuBarBucketRow: View {
                 onDrop(urls)
             }
             return true
+        }
+        .onAppear {
+            onEnsureMetrics()
         }
         .animation(.snappy(duration: 0.18), value: isDropTargeted)
     }

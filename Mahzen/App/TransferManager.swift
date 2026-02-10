@@ -22,6 +22,9 @@ final class TransferManager: ObservableObject {
 
     var activeCount: Int { transfers.count(where: { !$0.status.isTerminal && $0.status.fractionCompleted >= 0 && !isQueued($0) }) }
     var completedCount: Int { transfers.count(where: { if case .completed = $0.status { return true }; return false }) }
+    var failedCount: Int { transfers.count(where: { if case .failed = $0.status { return true }; return false }) }
+    var cancelledCount: Int { transfers.count(where: { if case .cancelled = $0.status { return true }; return false }) }
+    var terminalCount: Int { transfers.count(where: \.isTerminal) }
     var hasVisibleTransfers: Bool { !transfers.isEmpty }
 
     /// Overall batch progress across all queued (0%), active (fraction), and completed (100%) transfers.
@@ -178,6 +181,14 @@ final class TransferManager: ObservableObject {
     }
 
     func clearCompleted() {
+        transfers.removeAll {
+            if case .completed = $0.status { return true }
+            return false
+        }
+        updateIsTransferring()
+    }
+
+    func clearFinished() {
         transfers.removeAll(where: \.isTerminal)
         updateIsTransferring()
     }

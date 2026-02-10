@@ -16,8 +16,8 @@ enum AppTheme {
     static let fieldHeight: CGFloat = 34
     static let controlCornerRadius: CGFloat = 12
     static let cornerRadius: CGFloat = 14
-    static let stroke = Color.white.opacity(0.12)
-    static let strokeStrong = Color.white.opacity(0.18)
+    static let stroke = Color(nsColor: .separatorColor).opacity(0.65)
+    static let strokeStrong = Color(nsColor: .separatorColor).opacity(0.95)
     static let hoverFill = Color.primary.opacity(0.06)
     static let cardPadding: CGFloat = 12
     static let dividerOpacity: Double = 0.5

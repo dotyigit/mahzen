@@ -9,6 +9,7 @@ import SwiftUI
 
 struct TargetsSidebarView: View {
     @ObservedObject var model: AppModel
+    @State private var targetPendingDeletion: StorageTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,7 +55,7 @@ struct TargetsSidebarView: View {
                                     Divider()
 
                                     Button("Delete Target", role: .destructive) {
-                                        model.deleteTargets([target.id])
+                                        requestDelete(target)
                                     }
                                 }
                         }
@@ -86,5 +87,31 @@ struct TargetsSidebarView: View {
                 .help("Refresh")
             }
         }
+        .confirmationDialog(
+            "Delete Target?",
+            isPresented: Binding(
+                get: { targetPendingDeletion != nil },
+                set: { isPresented in
+                    if !isPresented { targetPendingDeletion = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let target = targetPendingDeletion {
+                Button("Delete \(target.name)", role: .destructive) {
+                    model.deleteTargets([target.id])
+                    targetPendingDeletion = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                targetPendingDeletion = nil
+            }
+        } message: {
+            Text("This removes the target configuration and stored credentials from Keychain.")
+        }
+    }
+
+    private func requestDelete(_ target: StorageTarget) {
+        targetPendingDeletion = target
     }
 }
