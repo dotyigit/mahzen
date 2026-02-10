@@ -1,0 +1,29 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Sparkle
+sparkle_private_key*
+
+# Archives & exports
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.app
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# Misc
+*.log
+*.orig
