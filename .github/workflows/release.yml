@@ -5,33 +5,59 @@ on:
     tags:
       - 'v*'
 
-env:
-  SCHEME: "Mahzen"
-  APP_NAME: "Mahzen"
-  BUNDLE_ID: "com.dotyigit.Mahzen"
-
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
-  build-and-release:
-    runs-on: macos-15
-    timeout-minutes: 30
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            rust_target: aarch64-apple-darwin
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            rust_target: x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ""
+            rust_target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            args: ""
+            rust_target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building version $VERSION"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
 
-      - name: Install certificate
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Apple certificate
+        if: startsWith(matrix.platform, 'macos')
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -53,230 +79,198 @@ jobs:
 
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
-      - name: Resolve Swift packages
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm"
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: Archive
-        run: |
-          xcodebuild archive \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -archivePath "$RUNNER_TEMP/Mahzen.xcarchive" \
-            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
-            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
-            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
-            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/app-signing.keychain-db"
-
-      - name: Export archive
-        run: |
-          cat > "$RUNNER_TEMP/export-options.plist" << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>developer-id</string>
-              <key>teamID</key>
-              <string>${{ secrets.APPLE_TEAM_ID }}</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Developer ID Application</string>
-          </dict>
-          </plist>
-          PLIST
-
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/Mahzen.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/export-options.plist" \
-            -exportPath "$RUNNER_TEMP/export"
-
-      - name: Re-sign Sparkle helpers
-        run: |
-          APP_PATH="$RUNNER_TEMP/export/$APP_NAME.app"
-          FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
-          IDENTITY="Developer ID Application"
-          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
-
-          # Sign from deepest to shallowest so outer signatures stay valid.
-          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-            "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
-          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-            "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
-          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-            "$FRAMEWORK/Versions/B/Autoupdate"
-          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-            "$FRAMEWORK"
-
-          # Re-sign the main app to pick up the updated framework signatures.
-          codesign --force --options runtime --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-            --entitlements "Mahzen/Mahzen.entitlements" \
-            "$APP_PATH"
-
-          # Verify everything is properly signed.
-          codesign --verify --deep --strict "$APP_PATH"
-
-      - name: Notarize app
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_BASE64 || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos') && 'Developer ID Application' || '' }}
+          APPLE_ID: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_TEAM_ID || '' }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Mahzen v__VERSION__"
+          releaseBody: ""
+          generateReleaseNotes: true
+          args: ${{ matrix.args }}
+
+      - name: Cleanup keychain
+        if: startsWith(matrix.platform, 'macos') && always()
         run: |
-          APP_PATH="$RUNNER_TEMP/export/$APP_NAME.app"
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
 
-          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/app-for-notarization.zip"
-
-          xcrun notarytool submit "$RUNNER_TEMP/app-for-notarization.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_ID_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-
-          xcrun stapler staple "$APP_PATH"
-
-      - name: Create DMG
+  publish-update-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          DMG_NAME="Mahzen-${VERSION}.dmg"
-          DMG_PATH="$RUNNER_TEMP/$DMG_NAME"
-          STAGING="$RUNNER_TEMP/dmg-staging"
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          mkdir -p "$STAGING"
-          cp -R "$RUNNER_TEMP/export/$APP_NAME.app" "$STAGING/"
-          ln -s /Applications "$STAGING/Applications"
-
-          hdiutil create -volname "$APP_NAME" \
-            -srcfolder "$STAGING" \
-            -ov -format UDZO \
-            "$DMG_PATH"
-
-          # Notarize + staple the DMG
-          xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_ID_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-            --wait
-
-          xcrun stapler staple "$DMG_PATH"
-
-          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
-          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
-
-      - name: Create Sparkle update ZIP
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ZIP_NAME="Mahzen-${VERSION}.zip"
-          ZIP_PATH="$RUNNER_TEMP/$ZIP_NAME"
-
-          ditto -c -k --keepParent \
-            "$RUNNER_TEMP/export/$APP_NAME.app" \
-            "$ZIP_PATH"
-
-          # Find Sparkle's sign_update tool from SPM build
-          SIGN_UPDATE=$(find "$RUNNER_TEMP/spm" -name "sign_update" -type f | head -1)
-
-          if [ -z "$SIGN_UPDATE" ]; then
-            # Fallback: download Sparkle release
-            curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/2.6.0/Sparkle-2.6.0.tar.xz" \
-              -o "$RUNNER_TEMP/sparkle.tar.xz"
-            mkdir -p "$RUNNER_TEMP/sparkle"
-            tar xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
-            SIGN_UPDATE="$RUNNER_TEMP/sparkle/bin/sign_update"
-          fi
-
-          chmod +x "$SIGN_UPDATE"
-
-          # Sign the update
-          SIGNATURE=$("$SIGN_UPDATE" "$ZIP_PATH" --ed-key-file <(echo "$SPARKLE_PRIVATE_KEY") | grep "sparkle:edSignature" | sed 's/.*sparkle:edSignature="\([^"]*\)".*/\1/')
-
-          echo "ZIP_PATH=$ZIP_PATH" >> "$GITHUB_ENV"
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
-          echo "SPARKLE_SIGNATURE=$SIGNATURE" >> "$GITHUB_ENV"
-
-          # Get file size for appcast
-          ZIP_SIZE=$(stat -f%z "$ZIP_PATH")
-          echo "ZIP_SIZE=$ZIP_SIZE" >> "$GITHUB_ENV"
-
-      - name: Generate appcast.xml
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          DATE=$(date -R)
-
-          cat > "$RUNNER_TEMP/appcast.xml" << APPCAST
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-            <channel>
-              <title>Mahzen Updates</title>
-              <link>https://dotyigit.github.io/mahzen/appcast.xml</link>
-              <description>Most recent changes with links to updates.</description>
-              <language>en</language>
-              <item>
-                <title>Version ${VERSION}</title>
-                <pubDate>${DATE}</pubDate>
-                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
-                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-                <enclosure
-                  url="https://github.com/dotyigit/mahzen/releases/download/v${VERSION}/${ZIP_NAME}"
-                  length="${ZIP_SIZE}"
-                  type="application/octet-stream"
-                  sparkle:edSignature="${SPARKLE_SIGNATURE}"
-                />
-              </item>
-            </channel>
-          </rss>
-          APPCAST
-
-      - name: Create GitHub Release
+      - name: Download release assets and build merged latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          REPO="dotyigit/mahzen"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
-          gh release create "v${VERSION}" \
-            --title "Mahzen v${VERSION}" \
-            --generate-notes \
-            "$DMG_PATH#Mahzen-${VERSION}.dmg" \
-            "$ZIP_PATH#Mahzen-${VERSION}.zip"
+          # Download all .sig files and the existing latest.json
+          mkdir -p assets
+          gh release download "$TAG" --repo "$REPO" --dir assets --pattern "*.sig" || true
+          gh release download "$TAG" --repo "$REPO" --dir assets --pattern "latest.json" || true
 
-      - name: Prepare appcast for Pages
+          echo "Downloaded assets:"
+          ls -la assets/
+
+          # Build the merged latest.json with all platform entries
+          # Detect available artifacts by their .sig files
+          cat > latest.json << 'SCRIPT'
+          {
+            "version": "VERSION_PLACEHOLDER",
+            "notes": "",
+            "pub_date": "DATE_PLACEHOLDER",
+            "platforms": {}
+          }
+          SCRIPT
+
+          # Use jq to build the manifest properly
+          sudo apt-get install -y jq > /dev/null 2>&1 || true
+
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Initialize the JSON
+          JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$PUB_DATE" \
+            '{version: $version, notes: "", pub_date: $pub_date, platforms: {}}')
+
+          # macOS aarch64 (.tar.gz)
+          SIG_FILE="assets/Mahzen.app.tar.gz.sig"
+          if [ ! -f "$SIG_FILE" ]; then
+            # Try aarch64-specific naming
+            SIG_FILE=$(ls assets/*aarch64*.tar.gz.sig 2>/dev/null | head -1)
+          fi
+          if [ -f "$SIG_FILE" ]; then
+            SIG=$(cat "$SIG_FILE")
+            ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
+            JSON=$(echo "$JSON" | jq \
+              --arg url "${BASE_URL}/${ARTIFACT_NAME}" \
+              --arg sig "$SIG" \
+              '.platforms["darwin-aarch64"] = {signature: $sig, url: $url}')
+          fi
+
+          # macOS x86_64 (.tar.gz)
+          SIG_FILE=$(ls assets/*x86_64*.tar.gz.sig 2>/dev/null | head -1)
+          # If we found an aarch64 sig above but there's a second macOS sig, use it
+          if [ -z "$SIG_FILE" ]; then
+            # Look for any remaining .tar.gz.sig that isn't the aarch64 one
+            for f in assets/*.tar.gz.sig; do
+              if [ -f "$f" ] && echo "$f" | grep -qv "aarch64"; then
+                SIG_FILE="$f"
+                break
+              fi
+            done
+          fi
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
+            SIG=$(cat "$SIG_FILE")
+            ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
+            JSON=$(echo "$JSON" | jq \
+              --arg url "${BASE_URL}/${ARTIFACT_NAME}" \
+              --arg sig "$SIG" \
+              '.platforms["darwin-x86_64"] = {signature: $sig, url: $url}')
+          fi
+
+          # Linux x86_64 (.AppImage.tar.gz)
+          SIG_FILE=$(ls assets/*.AppImage.tar.gz.sig 2>/dev/null | head -1)
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
+            SIG=$(cat "$SIG_FILE")
+            ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
+            JSON=$(echo "$JSON" | jq \
+              --arg url "${BASE_URL}/${ARTIFACT_NAME}" \
+              --arg sig "$SIG" \
+              '.platforms["linux-x86_64"] = {signature: $sig, url: $url}')
+          fi
+
+          # Windows x86_64 (.nsis.zip)
+          SIG_FILE=$(ls assets/*.nsis.zip.sig 2>/dev/null | head -1)
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
+            SIG=$(cat "$SIG_FILE")
+            ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
+            JSON=$(echo "$JSON" | jq \
+              --arg url "${BASE_URL}/${ARTIFACT_NAME}" \
+              --arg sig "$SIG" \
+              '.platforms["windows-x86_64"] = {signature: $sig, url: $url}')
+          fi
+
+          echo "$JSON" | jq . > latest.json
+          echo "Generated latest.json:"
+          cat latest.json
+
+      - name: Upload merged latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p "$RUNNER_TEMP/appcast-site"
-          cp "$RUNNER_TEMP/appcast.xml" "$RUNNER_TEMP/appcast-site/appcast.xml"
+          TAG="v${{ steps.version.outputs.version }}"
+          REPO="dotyigit/mahzen"
+          # Delete old latest.json and upload the merged one
+          gh release delete-asset "$TAG" latest.json --repo "$REPO" --yes 2>/dev/null || true
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: ${{ runner.temp }}/appcast-site
+  update-homebrew:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew cask
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+          TAG="v${VERSION}"
+          REPO="dotyigit/mahzen"
+
+          # Download the aarch64 DMG
+          mkdir -p assets
+          gh release download "$TAG" --repo "$REPO" --dir assets --pattern "*.dmg" || true
+
+          DMG_FILE=$(ls assets/*.dmg 2>/dev/null | head -1)
+          if [ -z "$DMG_FILE" ]; then
+            echo "No DMG found in release, skipping Homebrew update"
+            exit 0
+          fi
+
+          SHA256=$(sha256sum "$DMG_FILE" | awk '{print $1}')
+          DMG_NAME=$(basename "$DMG_FILE")
 
           # Clone the tap repo
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/dotyigit/homebrew-tap.git" \
-            "$RUNNER_TEMP/homebrew-tap"
+            homebrew-tap
 
-          mkdir -p "$RUNNER_TEMP/homebrew-tap/Casks"
+          mkdir -p homebrew-tap/Casks
 
-          cat > "$RUNNER_TEMP/homebrew-tap/Casks/mahzen.rb" << CASK
+          cat > homebrew-tap/Casks/mahzen.rb << CASK
           cask "mahzen" do
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/dotyigit/mahzen/releases/download/v#{version}/Mahzen-#{version}.dmg"
+            url "https://github.com/dotyigit/mahzen/releases/download/v#{version}/${DMG_NAME}"
             name "Mahzen"
             desc "Browse, upload, and download files to S3-compatible object storage"
             homepage "https://mahzen.dev"
@@ -292,32 +286,16 @@ jobs:
             app "Mahzen.app"
 
             zap trash: [
-              "~/Library/Application Support/Mahzen",
-              "~/Library/Preferences/com.dotyigit.Mahzen.plist",
-              "~/Library/Caches/com.dotyigit.Mahzen",
+              "~/Library/Application Support/dev.mahzen",
+              "~/Library/Preferences/dev.mahzen.plist",
+              "~/Library/Caches/dev.mahzen",
             ]
           end
           CASK
 
-          cd "$RUNNER_TEMP/homebrew-tap"
+          cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/mahzen.rb
           git commit -m "Update mahzen to ${VERSION}" || true
           git push
-
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
-
-  deploy-appcast:
-    needs: build-and-release
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

@@ -1,0 +1,55 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Mahzen",
+  "version": "2.0.0",
+  "identifier": "dev.mahzen",
+  "build": {
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Mahzen",
+        "width": 1380,
+        "height": 880,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "center": true,
+        "decorations": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFFODlFODkxQkY4NkE4MDMKUldRRHFJYS9rZWlKSG1HRjQ3dUFITGNONUFiSVNGZlFOb2ZTb1Vzbm9BbmNRM2dMNTRsTEZlL0sK",
+      "endpoints": [
+        "https://github.com/dotyigit/mahzen/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

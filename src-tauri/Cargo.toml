@@ -1,0 +1,36 @@
+[package]
+name = "mahzen"
+version = "2.0.0"
+description = "Mahzen desktop app"
+authors = ["Mahzen Contributors"]
+license = "MIT"
+repository = "https://github.com/dotyigit/mahzen"
+edition = "2021"
+rust-version = "1.83.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "mahzen_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.4", features = [] }
+
+[dependencies]
+anyhow = "1.0.101"
+aws-config = "1.8.13"
+aws-credential-types = "1.2.11"
+aws-sdk-s3 = "1.122.0"
+log = "0.4.28"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tauri = { version = "2.10.0", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2.7.1"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync"] }
+uuid = { version = "1.18.1", features = ["serde", "v7"] }
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+walkdir = "2"
