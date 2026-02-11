@@ -9,7 +9,7 @@ use aws_sdk_s3::Client;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::models::{BucketStats, S3BucketSummary, S3ObjectEntry, StorageTarget, TargetCredentials};
+use crate::models::{BucketStats, S3BucketSummary, S3ObjectEntry, S3ObjectListPage, StorageTarget, TargetCredentials};
 
 fn default_region(provider: &str) -> String {
     if provider.eq_ignore_ascii_case("Cloudflare R2") {
@@ -187,6 +187,121 @@ pub async fn list_objects(
     Ok(entries)
 }
 
+pub async fn list_objects_page(
+    target: &StorageTarget,
+    credentials: &TargetCredentials,
+    bucket: &str,
+    prefix: &str,
+    max_keys: i32,
+    continuation_token: Option<String>,
+) -> Result<S3ObjectListPage> {
+    let client = build_client(target, credentials).await?;
+    let mut entries = Vec::new();
+
+    let mut req = client
+        .list_objects_v2()
+        .bucket(bucket)
+        .prefix(prefix)
+        .delimiter("/")
+        .max_keys(max_keys);
+
+    if let Some(token) = &continuation_token {
+        req = req.continuation_token(token);
+    }
+
+    let output = req
+        .send()
+        .await
+        .map_err(|e| anyhow!("S3 list objects failed: {e}"))?;
+
+    // Common prefixes → folders (only on first page)
+    if continuation_token.is_none() {
+        if let Some(prefixes) = output.common_prefixes {
+            for cp in prefixes {
+                if let Some(p) = cp.prefix {
+                    if p == prefix {
+                        continue;
+                    }
+                    let name = p
+                        .strip_prefix(prefix)
+                        .unwrap_or(&p)
+                        .trim_end_matches('/')
+                        .to_string();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    entries.push(S3ObjectEntry {
+                        key: p.clone(),
+                        name,
+                        size: 0,
+                        last_modified: None,
+                        etag: None,
+                        storage_class: None,
+                        is_folder: true,
+                        content_type: None,
+                    });
+                }
+            }
+        }
+    }
+
+    // Contents → files
+    if let Some(contents) = output.contents {
+        for obj in contents {
+            let key = obj.key.unwrap_or_default();
+            if key == prefix || key.is_empty() {
+                continue;
+            }
+            let name = key
+                .strip_prefix(prefix)
+                .unwrap_or(&key)
+                .to_string();
+            if name.is_empty() || name.ends_with('/') {
+                continue;
+            }
+            let last_modified = obj.last_modified.map(|dt| dt.to_string());
+            let etag = obj.e_tag;
+            let storage_class = obj.storage_class.map(|sc| sc.to_string());
+
+            entries.push(S3ObjectEntry {
+                key: key.clone(),
+                name,
+                size: obj.size.unwrap_or(0),
+                last_modified,
+                etag,
+                storage_class,
+                is_folder: false,
+                content_type: None,
+            });
+        }
+    }
+
+    let is_truncated = output.is_truncated == Some(true);
+    let next_token = if is_truncated {
+        output.next_continuation_token
+    } else {
+        None
+    };
+
+    // Sort folders first, then by name
+    entries.sort_by(|a, b| {
+        if a.is_folder != b.is_folder {
+            return if a.is_folder {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
+    });
+
+    Ok(S3ObjectListPage {
+        entries,
+        next_continuation_token: next_token,
+        is_truncated,
+    })
+}
+
 pub async fn put_object(
     target: &StorageTarget,
     credentials: &TargetCredentials,
@@ -220,7 +335,12 @@ pub async fn get_object(
     bucket: &str,
     key: &str,
     dest_path: &str,
+    on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
+    use std::io::Write;
+    use std::time::Instant;
+    use tokio::io::AsyncReadExt;
+
     let client = build_client(target, credentials).await?;
     let output = client
         .get_object()
@@ -230,18 +350,38 @@ pub async fn get_object(
         .await
         .map_err(|e| anyhow!("S3 get object failed: {e}"))?;
 
-    let data = output
-        .body
-        .collect()
-        .await
-        .map_err(|e| anyhow!("Failed to read S3 object body: {e}"))?;
+    let total = output.content_length().map(|v| v.max(0) as u64).unwrap_or(0);
 
     let dest = Path::new(dest_path);
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(dest, data.into_bytes())?;
 
+    let mut file = std::fs::File::create(dest)?;
+    let mut reader = output.body.into_async_read();
+    let mut downloaded: u64 = 0;
+    let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
+    let mut last_emit = Instant::now();
+
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .await
+            .map_err(|e| anyhow!("Failed to read S3 stream: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])?;
+        downloaded += n as u64;
+
+        if last_emit.elapsed().as_millis() >= 50 || downloaded == total {
+            on_progress(downloaded, total);
+            last_emit = Instant::now();
+        }
+    }
+
+    // Ensure final progress
+    on_progress(downloaded, if total > 0 { total } else { downloaded });
     Ok(())
 }
 
@@ -375,6 +515,154 @@ pub async fn presign_object(
         .map_err(|e| anyhow!("S3 presign failed: {e}"))?;
 
     Ok(presigned.uri().to_string())
+}
+
+pub async fn list_objects_recursive(
+    target: &StorageTarget,
+    credentials: &TargetCredentials,
+    bucket: &str,
+    prefix: &str,
+) -> Result<Vec<S3ObjectEntry>> {
+    let client = build_client(target, credentials).await?;
+    let mut entries = Vec::new();
+    let mut continuation_token: Option<String> = None;
+
+    loop {
+        let mut req = client
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix(prefix);
+
+        if let Some(token) = &continuation_token {
+            req = req.continuation_token(token);
+        }
+
+        let output = req
+            .send()
+            .await
+            .map_err(|e| anyhow!("S3 list objects recursive failed: {e}"))?;
+
+        if let Some(contents) = output.contents {
+            for obj in contents {
+                let key = obj.key.unwrap_or_default();
+                if key.is_empty() || key.ends_with('/') {
+                    continue;
+                }
+                let name = key
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&key)
+                    .to_string();
+                let last_modified = obj.last_modified.map(|dt| dt.to_string());
+                let etag = obj.e_tag;
+                let storage_class = obj.storage_class.map(|sc| sc.to_string());
+
+                entries.push(S3ObjectEntry {
+                    key,
+                    name,
+                    size: obj.size.unwrap_or(0),
+                    last_modified,
+                    etag,
+                    storage_class,
+                    is_folder: false,
+                    content_type: None,
+                });
+            }
+        }
+
+        if output.is_truncated == Some(true) {
+            continuation_token = output.next_continuation_token;
+            if continuation_token.is_none() {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    Ok(entries)
+}
+
+pub async fn download_objects_as_zip(
+    target: &StorageTarget,
+    credentials: &TargetCredentials,
+    bucket: &str,
+    keys: Vec<String>,
+    base_prefix: &str,
+    dest_path: &str,
+    total_size: u64,
+    on_progress: impl Fn(u64, u64),
+) -> Result<u64> {
+    use std::io::{BufWriter, Write};
+    use std::time::Instant;
+    use tokio::io::AsyncReadExt;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+
+    let client = build_client(target, credentials).await?;
+
+    let file = std::fs::File::create(dest_path)
+        .map_err(|e| anyhow!("Failed to create ZIP file at {dest_path}: {e}"))?;
+    let buf_writer = BufWriter::new(file);
+    let mut zip = ZipWriter::new(buf_writer);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut cumulative: u64 = 0;
+    let mut last_emit = Instant::now();
+
+    for key in &keys {
+        let entry_name = key.strip_prefix(base_prefix).unwrap_or(key);
+        if entry_name.is_empty() {
+            continue;
+        }
+
+        let output = client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| anyhow!("S3 get object failed for {key}: {e}"))?;
+
+        zip.start_file(entry_name, options)
+            .map_err(|e| anyhow!("Failed to start ZIP entry {entry_name}: {e}"))?;
+
+        // Stream body chunks directly into ZIP entry
+        let mut reader = output.body.into_async_read();
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .await
+                .map_err(|e| anyhow!("Failed to read S3 stream for {key}: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            zip.write_all(&buf[..n])
+                .map_err(|e| anyhow!("Failed to write ZIP entry {entry_name}: {e}"))?;
+            cumulative += n as u64;
+
+            if last_emit.elapsed().as_millis() >= 50 {
+                on_progress(cumulative, total_size);
+                last_emit = Instant::now();
+            }
+        }
+    }
+
+    // Final progress
+    on_progress(cumulative, if total_size > 0 { total_size } else { cumulative });
+
+    let buf_writer = zip
+        .finish()
+        .map_err(|e| anyhow!("Failed to finalize ZIP: {e}"))?;
+    buf_writer
+        .into_inner()
+        .map_err(|e| anyhow!("Failed to flush ZIP: {e}"))?;
+
+    let metadata = std::fs::metadata(dest_path)
+        .map_err(|e| anyhow!("Failed to read ZIP file size: {e}"))?;
+    Ok(metadata.len())
 }
 
 fn guess_content_type(key: &str) -> String {

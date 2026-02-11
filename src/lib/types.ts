@@ -79,6 +79,12 @@ export type S3ObjectEntry = {
   contentType: string | null;
 };
 
+export type S3ObjectListPage = {
+  entries: S3ObjectEntry[];
+  nextContinuationToken: string | null;
+  isTruncated: boolean;
+};
+
 export type AppSettings = {
   theme: string;
   fontSize: number;

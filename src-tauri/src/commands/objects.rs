@@ -1,9 +1,19 @@
-use tauri::State;
+use serde::Serialize;
+use tauri::{Emitter, State};
 
 use crate::app_state::AppState;
 use crate::core::s3;
 use crate::core::storage::repositories::{credentials_repo, targets_repo};
-use crate::models::{BucketStats, S3ObjectEntry};
+use crate::models::{BucketStats, S3ObjectEntry, S3ObjectListPage};
+use log::info;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    transfer_id: String,
+    bytes_done: u64,
+    bytes_total: u64,
+}
 
 fn resolve_target_and_credentials(
     state: &AppState,
@@ -32,6 +42,21 @@ pub async fn target_objects_list(
 }
 
 #[tauri::command]
+pub async fn target_objects_list_page(
+    state: State<'_, AppState>,
+    target_id: String,
+    bucket: String,
+    prefix: String,
+    max_keys: i32,
+    continuation_token: Option<String>,
+) -> Result<S3ObjectListPage, String> {
+    let (target, credentials) = resolve_target_and_credentials(&state, &target_id)?;
+    s3::list_objects_page(&target, &credentials, &bucket, &prefix, max_keys, continuation_token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn target_object_upload(
     state: State<'_, AppState>,
     target_id: String,
@@ -48,15 +73,37 @@ pub async fn target_object_upload(
 #[tauri::command]
 pub async fn target_object_download(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     target_id: String,
     bucket: String,
     key: String,
     dest_path: String,
+    transfer_id: String,
 ) -> Result<(), String> {
     let (target, credentials) = resolve_target_and_credentials(&state, &target_id)?;
-    s3::get_object(&target, &credentials, &bucket, &key, &dest_path)
-        .await
-        .map_err(|e| e.to_string())
+
+    let app_clone = app.clone();
+    let tid = transfer_id.clone();
+
+    s3::get_object(
+        &target,
+        &credentials,
+        &bucket,
+        &key,
+        &dest_path,
+        move |done, total| {
+            let _ = app_clone.emit(
+                "download-progress",
+                DownloadProgress {
+                    transfer_id: tid.clone(),
+                    bytes_done: done,
+                    bytes_total: total,
+                },
+            );
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -95,6 +142,60 @@ pub async fn target_bucket_stats(
     s3::bucket_stats(&target, &credentials, &bucket)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn target_objects_list_recursive(
+    state: State<'_, AppState>,
+    target_id: String,
+    bucket: String,
+    prefix: String,
+) -> Result<Vec<S3ObjectEntry>, String> {
+    let (target, credentials) = resolve_target_and_credentials(&state, &target_id)?;
+    s3::list_objects_recursive(&target, &credentials, &bucket, &prefix)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn target_objects_download_zip(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    target_id: String,
+    bucket: String,
+    keys: Vec<String>,
+    base_prefix: String,
+    dest_path: String,
+    transfer_id: String,
+    total_size: u64,
+) -> Result<u64, String> {
+    info!("Downloading {} objects as ZIP to {}", keys.len(), dest_path);
+    let (target, credentials) = resolve_target_and_credentials(&state, &target_id)?;
+
+    let app_clone = app.clone();
+    let tid = transfer_id.clone();
+
+    s3::download_objects_as_zip(
+        &target,
+        &credentials,
+        &bucket,
+        keys,
+        &base_prefix,
+        &dest_path,
+        total_size,
+        move |done, total| {
+            let _ = app_clone.emit(
+                "download-progress",
+                DownloadProgress {
+                    transfer_id: tid.clone(),
+                    bytes_done: done,
+                    bytes_total: total,
+                },
+            );
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

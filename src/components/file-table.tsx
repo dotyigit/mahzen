@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion } from 'motion/react'
 import {
   ArrowUpDown,
@@ -15,6 +16,7 @@ import {
   Info,
   Tag,
   Share2,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type S3Object, formatBytes, formatDate } from '@/lib/s3-types'
@@ -30,7 +32,6 @@ import {
   ContextMenuTrigger,
   ContextMenuShortcut,
 } from '@/components/ui/context-menu'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 
@@ -55,6 +56,9 @@ interface FileTableProps {
   sizeFormat?: 'binary' | 'decimal'
   fontSize?: number
   compactMode?: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 export function FileTable({
@@ -75,9 +79,13 @@ export function FileTable({
   sizeFormat = 'binary',
   fontSize = 12,
   compactMode = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: FileTableProps) {
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const parentRef = useRef<HTMLDivElement>(null)
 
   const sortedObjects = useMemo(() => {
     const sorted = [...objects].sort((a, b) => {
@@ -101,6 +109,26 @@ export function FileTable({
     })
     return sorted
   }, [objects, sortField, sortDirection])
+
+  const rowHeight = compactMode ? 28 : 36
+
+  const rowVirtualizer = useVirtualizer({
+    count: sortedObjects.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 20,
+  })
+
+  // Load more when scrolling near the bottom
+  useEffect(() => {
+    if (!hasMore || isLoadingMore || !onLoadMore || viewMode !== 'list') return
+    const items = rowVirtualizer.getVirtualItems()
+    if (items.length === 0) return
+    const lastItem = items[items.length - 1]
+    if (lastItem && lastItem.index >= sortedObjects.length - 30) {
+      onLoadMore()
+    }
+  }, [rowVirtualizer.getVirtualItems(), hasMore, isLoadingMore, onLoadMore, sortedObjects.length, viewMode])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -165,6 +193,14 @@ export function FileTable({
     [onSelectionChange, onClearDetails],
   )
 
+  const handleGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!hasMore || isLoadingMore || !onLoadMore) return
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) {
+      onLoadMore()
+    }
+  }, [hasMore, isLoadingMore, onLoadMore])
+
   const sortIcon = (field: SortField) => {
     if (sortField !== field)
       return <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-50" />
@@ -195,14 +231,11 @@ export function FileTable({
 
   if (viewMode === 'grid') {
     return (
-      <ScrollArea className={cn('flex-1', compactMode ? 'p-2' : 'p-3')} onPointerDown={handleBackgroundClick}>
+      <div ref={parentRef} className={cn('flex-1 overflow-auto', compactMode ? 'p-2' : 'p-3')} onPointerDown={handleBackgroundClick} onScroll={handleGridScroll}>
         <div className={cn('grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))]', compactMode ? 'gap-1' : 'gap-2')}>
-          {sortedObjects.map((obj, index) => (
+          {sortedObjects.map((obj) => (
             <FileContextMenu key={obj.key} obj={obj} bucketName={bucketName} onNavigate={onNavigate} onShowDetails={onShowDetails} onDelete={onDelete} onDownload={onDownload} onPresign={onPresign}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.2, delay: Math.min(index * 0.015, 0.3) }}
+              <div
                 data-file-row
                 role="button"
                 tabIndex={0}
@@ -226,19 +259,32 @@ export function FileTable({
                     <p className="mt-0.5 text-muted-foreground" style={{ fontSize: fontSize - 2 }}>{formatBytes(obj.size, sizeFormat)}</p>
                   )}
                 </div>
-              </motion.div>
+              </div>
             </FileContextMenu>
           ))}
         </div>
-      </ScrollArea>
+        {hasMore && (
+          <div className="flex items-center justify-center py-4">
+            {isLoadingMore ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <button type="button" onClick={onLoadMore} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                Load more...
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     )
   }
 
+  const virtualItems = rowVirtualizer.getVirtualItems()
+
   return (
-    <ScrollArea className="flex-1" onPointerDown={handleBackgroundClick}>
+    <div className="flex flex-1 flex-col overflow-hidden" onPointerDown={handleBackgroundClick}>
       <div className="w-full min-w-[700px]">
         {/* Header */}
-        <div data-table-header className={cn('sticky top-0 z-10 flex items-center border-b border-border bg-card', compactMode ? '[&>div]:py-1' : '[&>div]:py-2')}>
+        <div data-table-header className={cn('flex items-center border-b border-border bg-card', compactMode ? '[&>div]:py-1' : '[&>div]:py-2')}>
           <div className="flex w-11 flex-shrink-0 items-center justify-center">
             <Checkbox
               checked={objects.length > 0 && selectedKeys.size === objects.length}
@@ -289,96 +335,117 @@ export function FileTable({
             </span>
           </div>
         </div>
+      </div>
 
-        {/* Rows */}
-        {sortedObjects.map((obj, index) => {
-          const isSelected = selectedKeys.has(obj.key)
-          return (
-            <FileContextMenu key={obj.key} obj={obj} bucketName={bucketName} onNavigate={onNavigate} onShowDetails={onShowDetails} onDelete={onDelete} onDownload={onDownload} onPresign={onPresign}>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.2, delay: Math.min(index * 0.01, 0.2) }}
-                data-file-row
-                role="row"
-                tabIndex={0}
-                onClick={(e) => handleRowClick(obj, e)}
-                onDoubleClick={() => handleDoubleClick(obj)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleDoubleClick(obj)
-                }}
-                className={cn(
-                  'group flex cursor-default items-center border-b border-border/30 transition-colors duration-100',
-                  isSelected ? 'bg-primary/5' : 'hover:bg-secondary/50',
-                )}
-              >
-                <div className={cn('flex w-11 flex-shrink-0 items-center justify-center', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  <Checkbox
-                    checked={isSelected}
-                    onCheckedChange={(checked) => {
-                      const newKeys = new Set(selectedKeys)
-                      if (checked) {
-                        newKeys.add(obj.key)
-                      } else {
-                        newKeys.delete(obj.key)
-                      }
-                      onSelectionChange(newKeys)
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-3.5 w-3.5"
-                    aria-label={`Select ${obj.name}`}
-                  />
-                </div>
-                <div className={cn('flex flex-1 items-center gap-2.5 pr-4', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  {showFileIcons && <FileIcon name={obj.name} type={obj.type} />}
-                  <span
-                    className={cn(
-                      'truncate font-medium',
-                      obj.type === 'folder' ? 'text-foreground' : 'text-foreground/90',
-                    )}
-                    style={{ fontSize }}
-                  >
-                    {obj.name}
-                  </span>
-                </div>
-                <div className={cn('w-24 flex-shrink-0 pr-4', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  <span className="font-mono text-muted-foreground" style={{ fontSize }}>
-                    {obj.type === 'folder' ? '--' : formatBytes(obj.size, sizeFormat)}
-                  </span>
-                </div>
-                <div className={cn('w-28 flex-shrink-0 pr-4', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  <span className="text-muted-foreground" style={{ fontSize }}>{formatDate(obj.lastModified, dateFormat)}</span>
-                </div>
-                <div className={cn('w-28 flex-shrink-0 pr-4', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  {obj.storageClass && (
+      {/* Virtualized Rows */}
+      <div
+        ref={parentRef}
+        className="flex-1 overflow-auto"
+      >
+        <div
+          className="relative w-full min-w-[700px]"
+          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const obj = sortedObjects[virtualRow.index]
+            const isSelected = selectedKeys.has(obj.key)
+            return (
+              <FileContextMenu key={obj.key} obj={obj} bucketName={bucketName} onNavigate={onNavigate} onShowDetails={onShowDetails} onDelete={onDelete} onDownload={onDownload} onPresign={onPresign}>
+                <div
+                  data-file-row
+                  role="row"
+                  tabIndex={0}
+                  onClick={(e) => handleRowClick(obj, e)}
+                  onDoubleClick={() => handleDoubleClick(obj)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleDoubleClick(obj)
+                  }}
+                  className={cn(
+                    'group absolute left-0 top-0 flex w-full cursor-default items-center border-b border-border/30 transition-colors duration-100',
+                    isSelected ? 'bg-primary/5' : 'hover:bg-secondary/50',
+                  )}
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex w-11 flex-shrink-0 items-center justify-center">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={(checked) => {
+                        const newKeys = new Set(selectedKeys)
+                        if (checked) {
+                          newKeys.add(obj.key)
+                        } else {
+                          newKeys.delete(obj.key)
+                        }
+                        onSelectionChange(newKeys)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-3.5 w-3.5"
+                      aria-label={`Select ${obj.name}`}
+                    />
+                  </div>
+                  <div className="flex flex-1 items-center gap-2.5 pr-4">
+                    {showFileIcons && <FileIcon name={obj.name} type={obj.type} />}
                     <span
                       className={cn(
-                        'inline-flex rounded-full px-2 py-0.5 font-medium',
-                        obj.storageClass === 'STANDARD'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : obj.storageClass === 'GLACIER'
-                            ? 'bg-cyan-500/10 text-cyan-400'
-                            : 'bg-amber-500/10 text-amber-400',
+                        'truncate font-medium',
+                        obj.type === 'folder' ? 'text-foreground' : 'text-foreground/90',
                       )}
-                      style={{ fontSize: fontSize - 2 }}
+                      style={{ fontSize }}
                     >
-                      {obj.storageClass}
+                      {obj.name}
                     </span>
-                  )}
-                </div>
-                <div className={cn('w-24 flex-shrink-0 pr-4', compactMode ? 'py-0.5' : 'py-1.5')}>
-                  {obj.etag && (
-                    <span className="font-mono text-muted-foreground/60" style={{ fontSize: fontSize - 2 }}>
-                      {obj.etag.replace(/"/g, '').slice(0, 8)}...
+                  </div>
+                  <div className="w-24 flex-shrink-0 pr-4">
+                    <span className="font-mono text-muted-foreground" style={{ fontSize }}>
+                      {obj.type === 'folder' ? '--' : formatBytes(obj.size, sizeFormat)}
                     </span>
-                  )}
+                  </div>
+                  <div className="w-28 flex-shrink-0 pr-4">
+                    <span className="text-muted-foreground" style={{ fontSize }}>{formatDate(obj.lastModified, dateFormat)}</span>
+                  </div>
+                  <div className="w-28 flex-shrink-0 pr-4">
+                    {obj.storageClass && (
+                      <span
+                        className={cn(
+                          'inline-flex rounded-full px-2 py-0.5 font-medium',
+                          obj.storageClass === 'STANDARD'
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : obj.storageClass === 'GLACIER'
+                              ? 'bg-cyan-500/10 text-cyan-400'
+                              : 'bg-amber-500/10 text-amber-400',
+                        )}
+                        style={{ fontSize: fontSize - 2 }}
+                      >
+                        {obj.storageClass}
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-24 flex-shrink-0 pr-4">
+                    {obj.etag && (
+                      <span className="font-mono text-muted-foreground/60" style={{ fontSize: fontSize - 2 }}>
+                        {obj.etag.replace(/"/g, '').slice(0, 8)}...
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </motion.div>
-            </FileContextMenu>
-          )
-        })}
+              </FileContextMenu>
+            )
+          })}
+        </div>
+        {hasMore && (
+          <div className="flex items-center justify-center py-3">
+            {isLoadingMore ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <span className="text-xs text-muted-foreground">Scroll to load more...</span>
+            )}
+          </div>
+        )}
       </div>
-    </ScrollArea>
+    </div>
   )
 }
 

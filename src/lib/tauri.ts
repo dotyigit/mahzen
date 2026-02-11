@@ -9,6 +9,7 @@ import type {
   S3BucketSummary,
   S3ConnectionResult,
   S3ObjectEntry,
+  S3ObjectListPage,
   StorageTarget,
   SyncProfile,
   TargetCredentials,
@@ -42,16 +43,22 @@ export const targetConnectionTest = (targetId: string) =>
 
 export const targetObjectsList = (targetId: string, bucket: string, prefix: string) =>
   invokeSafe<S3ObjectEntry[]>("target_objects_list", { targetId, bucket, prefix });
+export const targetObjectsListPage = (targetId: string, bucket: string, prefix: string, maxKeys: number, continuationToken: string | null) =>
+  invokeSafe<S3ObjectListPage>("target_objects_list_page", { targetId, bucket, prefix, maxKeys, continuationToken });
 export const targetObjectUpload = (targetId: string, bucket: string, key: string, sourcePath: string) =>
   invokeSafe<void>("target_object_upload", { targetId, bucket, key, sourcePath });
-export const targetObjectDownload = (targetId: string, bucket: string, key: string, destPath: string) =>
-  invokeSafe<void>("target_object_download", { targetId, bucket, key, destPath });
+export const targetObjectDownload = (targetId: string, bucket: string, key: string, destPath: string, transferId: string) =>
+  invokeSafe<void>("target_object_download", { targetId, bucket, key, destPath, transferId });
 export const targetObjectsDelete = (targetId: string, bucket: string, keys: string[]) =>
   invokeSafe<void>("target_objects_delete", { targetId, bucket, keys });
 export const targetFolderCreate = (targetId: string, bucket: string, key: string) =>
   invokeSafe<void>("target_folder_create", { targetId, bucket, key });
 export const targetBucketStats = (targetId: string, bucket: string) =>
   invokeSafe<BucketStats>("target_bucket_stats", { targetId, bucket });
+export const targetObjectsListRecursive = (targetId: string, bucket: string, prefix: string) =>
+  invokeSafe<S3ObjectEntry[]>("target_objects_list_recursive", { targetId, bucket, prefix });
+export const targetObjectsDownloadZip = (targetId: string, bucket: string, keys: string[], basePrefix: string, destPath: string, transferId: string, totalSize: number) =>
+  invokeSafe<number>("target_objects_download_zip", { targetId, bucket, keys, basePrefix, destPath, transferId, totalSize });
 export const targetObjectPresign = (targetId: string, bucket: string, key: string, expiresInSecs: number) =>
   invokeSafe<string>("target_object_presign", { targetId, bucket, key, expiresInSecs });
 export const listDirectoryFiles = (path: string) =>

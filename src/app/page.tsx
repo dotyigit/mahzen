@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
+import { Upload } from 'lucide-react'
 import { type S3Object, s3EntryToObject } from '@/lib/s3-types'
 import { BucketSidebar } from '@/components/bucket-sidebar'
 import { BrowserToolbar } from '@/components/browser-toolbar'
@@ -11,7 +12,7 @@ import { DetailPanel } from '@/components/detail-panel'
 import { StatusBar } from '@/components/status-bar'
 import { WelcomeScreen } from '@/components/welcome-screen'
 import { AddSourceDialog } from '@/components/add-source-dialog'
-import { UploadDialog } from '@/components/upload-dialog'
+import { UploadDialog, type StagedFile } from '@/components/upload-dialog'
 import { NewFolderDialog } from '@/components/new-folder-dialog'
 import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog'
 import { PresignDialog } from '@/components/presign-dialog'
@@ -19,7 +20,7 @@ import { TransfersPanel } from '@/components/transfers-panel'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { useActiveTransferCount } from '@/lib/transfer-store'
 import { transferStore } from '@/lib/transfer-store'
-import { targetsList, targetBucketsList, targetObjectsList, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet } from '@/lib/tauri'
+import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles } from '@/lib/tauri'
 import type { AppSettings, SidebarBucket } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -64,6 +65,12 @@ export default function Page() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isObjectsLoading, setIsObjectsLoading] = useState(false)
 
+  // Pagination state
+  const [continuationToken, setContinuationToken] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const PAGE_SIZE = 200
+
   // Settings state
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const { setTheme } = useTheme()
@@ -79,6 +86,10 @@ export default function Page() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [presignOpen, setPresignOpen] = useState(false)
   const [presignObject, setPresignObject] = useState<S3Object | null>(null)
+
+  // Drag-drop state
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadInitialFiles, setUploadInitialFiles] = useState<StagedFile[]>([])
 
   const activeTransferCount = useActiveTransferCount()
 
@@ -172,9 +183,13 @@ export default function Page() {
     setIsObjectsLoading(true)
     setSelectedKeys(new Set())
     setDetailObject(null)
+    setContinuationToken(null)
+    setHasMore(false)
     try {
-      const entries = await targetObjectsList(targetId, bucket, prefix)
-      setObjects(entries.map(s3EntryToObject))
+      const page = await targetObjectsListPage(targetId, bucket, prefix, PAGE_SIZE, null)
+      setObjects(page.entries.map(s3EntryToObject))
+      setContinuationToken(page.nextContinuationToken)
+      setHasMore(page.isTruncated)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error('Failed to load objects', { description: msg })
@@ -184,6 +199,22 @@ export default function Page() {
     }
   }, [])
 
+  const loadMoreObjects = useCallback(async () => {
+    if (!selectedBucket || !hasMore || !continuationToken || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const page = await targetObjectsListPage(selectedBucket.targetId, selectedBucket.name, currentPath, PAGE_SIZE, continuationToken)
+      setObjects(prev => [...prev, ...page.entries.map(s3EntryToObject)])
+      setContinuationToken(page.nextContinuationToken)
+      setHasMore(page.isTruncated)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error('Failed to load more objects', { description: msg })
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [selectedBucket, hasMore, continuationToken, isLoadingMore, currentPath])
+
   // Auto-refresh timer
   useEffect(() => {
     if (!settings.autoRefresh || !selectedBucket) return
@@ -192,6 +223,86 @@ export default function Page() {
     }, 30_000)
     return () => clearInterval(interval)
   }, [settings.autoRefresh, selectedBucket, currentPath, loadObjects])
+
+  // Tauri native drag-drop listener
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlisten: (() => void) | undefined
+
+    import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) => {
+      getCurrentWebviewWindow().onDragDropEvent((event) => {
+        if (event.payload.type === 'enter') {
+          setIsDragging(true)
+        } else if (event.payload.type === 'leave') {
+          setIsDragging(false)
+        } else if (event.payload.type === 'drop') {
+          setIsDragging(false)
+          const paths = event.payload.paths
+          if (!paths || paths.length === 0) return
+
+          if (!selectedBucket) {
+            toast.info('Select a bucket first to upload files')
+            return
+          }
+
+          // Convert dropped paths to StagedFile[] and expand directories
+          const processDroppedPaths = async () => {
+            const staged: StagedFile[] = []
+
+            for (const p of paths) {
+              try {
+                // Try expanding as directory first
+                const files = await listDirectoryFiles(p)
+                if (files.length > 0) {
+                  const folderName = p.split('/').pop() || p.split('\\').pop() || p
+                  for (const f of files) {
+                    const relativePath = `${folderName}/${f.relativePath.replace(/\\/g, '/')}`
+                    const name = f.relativePath.split('/').pop() || f.relativePath.split('\\').pop() || f.relativePath
+                    staged.push({
+                      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                      name,
+                      path: f.absolutePath,
+                      relativePath,
+                      size: f.size,
+                    })
+                  }
+                } else {
+                  // Treat as single file
+                  const name = p.split('/').pop() || p.split('\\').pop() || p
+                  staged.push({
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    name,
+                    path: p,
+                    relativePath: name,
+                    size: 0,
+                  })
+                }
+              } catch {
+                // Not a directory, treat as single file
+                const name = p.split('/').pop() || p.split('\\').pop() || p
+                staged.push({
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                  name,
+                  path: p,
+                  relativePath: name,
+                  size: 0,
+                })
+              }
+            }
+
+            if (staged.length > 0) {
+              setUploadInitialFiles(staged)
+              setUploadOpen(true)
+            }
+          }
+
+          processDroppedPaths()
+        }
+      }).then((fn) => { unlisten = fn })
+    })
+
+    return () => { unlisten?.() }
+  }, [selectedBucket])
 
   // Load buckets on mount
   useEffect(() => {
@@ -362,12 +473,66 @@ export default function Page() {
     handleDeleteObjects(keys)
   }, [selectedKeys, handleDeleteObjects])
 
-  const handleDownloadSelected = useCallback(() => {
-    const selected = objects.filter((o) => selectedKeys.has(o.key) && o.type === 'file')
-    for (const obj of selected) {
-      handleDownloadObject(obj)
+  const handleDownloadSelected = useCallback(async () => {
+    if (!selectedBucket || selectedKeys.size === 0) return
+
+    const selectedObjs = objects.filter((o) => selectedKeys.has(o.key))
+    const hasFolders = selectedObjs.some((o) => o.type === 'folder')
+
+    // Single file without folders → use the normal single-file download
+    if (selectedObjs.length === 1 && !hasFolders) {
+      handleDownloadObject(selectedObjs[0])
+      return
     }
-  }, [objects, selectedKeys, handleDownloadObject])
+
+    // Multi-file or folder selection → download as ZIP via transfer store
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog')
+      const timestamp = new Date().toISOString().slice(0, 10)
+      const destPath = await save({
+        defaultPath: `${selectedBucket.name}-${timestamp}.zip`,
+        filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+      })
+      if (!destPath) return
+
+      toast.info('Preparing ZIP download...', { description: 'Collecting file list' })
+
+      // Collect all keys and total size: files directly + expand folders recursively
+      const allKeys: string[] = []
+      let totalSize = 0
+      for (const obj of selectedObjs) {
+        if (obj.type === 'folder') {
+          const recursive = await targetObjectsListRecursive(selectedBucket.targetId, selectedBucket.name, obj.key)
+          for (const entry of recursive) {
+            allKeys.push(entry.key)
+            totalSize += entry.size
+          }
+        } else {
+          allKeys.push(obj.key)
+          totalSize += obj.size
+        }
+      }
+
+      if (allKeys.length === 0) {
+        toast.info('No files to download', { description: 'Selected folders are empty' })
+        return
+      }
+
+      const zipName = destPath.split('/').pop() || `${selectedBucket.name}.zip`
+      transferStore.addZipTransfer(
+        zipName,
+        selectedBucket.name,
+        allKeys,
+        currentPath,
+        selectedBucket.targetId,
+        destPath,
+        totalSize,
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error('ZIP download failed', { description: msg })
+    }
+  }, [objects, selectedKeys, selectedBucket, currentPath, handleDownloadObject])
 
   const handlePresignObject = useCallback((obj: S3Object) => {
     setPresignObject(obj)
@@ -484,7 +649,24 @@ export default function Page() {
   const hasSelectedBucket = !!selectedBucket
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-background">
+      {/* Drag-Drop Overlay */}
+      {isDragging && selectedBucket && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-primary bg-primary/5 px-12 py-10">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <Upload className="h-7 w-7 text-primary" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">
+              Drop files to upload
+            </p>
+            <p className="text-xs text-muted-foreground">
+              to {selectedBucket.name}/{currentPath}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <BucketSidebar
         buckets={sidebarBuckets}
@@ -514,11 +696,15 @@ export default function Page() {
         <>
           <UploadDialog
             open={uploadOpen}
-            onOpenChange={setUploadOpen}
+            onOpenChange={(open) => {
+              setUploadOpen(open)
+              if (!open) setUploadInitialFiles([])
+            }}
             targetId={selectedBucket.targetId}
             bucketName={selectedBucket.name}
             currentPath={currentPath}
             onUploadComplete={handleRefresh}
+            initialFiles={uploadInitialFiles}
           />
           <NewFolderDialog
             open={newFolderOpen}
@@ -589,6 +775,9 @@ export default function Page() {
                   sizeFormat={settings.sizeFormat as 'binary' | 'decimal'}
                   fontSize={settings.fontSize}
                   compactMode={settings.compactMode}
+                  hasMore={hasMore}
+                  isLoadingMore={isLoadingMore}
+                  onLoadMore={loadMoreObjects}
                 />
               </div>
               <AnimatePresence>
@@ -597,6 +786,7 @@ export default function Page() {
                     key="detail-panel"
                     object={detailObject}
                     bucketName={selectedBucket.name}
+                    targetId={selectedBucket.targetId}
                     onClose={handleCloseDetails}
                     onDownload={handleDownloadObject}
                     onPresign={handlePresignObject}

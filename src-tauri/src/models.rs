@@ -15,6 +15,14 @@ pub struct S3ObjectEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct S3ObjectListPage {
+    pub entries: Vec<S3ObjectEntry>,
+    pub next_continuation_token: Option<String>,
+    pub is_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageTarget {
     pub id: String,
     pub name: String,

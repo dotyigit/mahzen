@@ -10,10 +10,12 @@ import { FileIcon } from '@/components/file-icon'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ObjectPreview, getPreviewCategory } from '@/components/object-preview'
 
 interface DetailPanelProps {
   object: S3Object
   bucketName: string
+  targetId: string
   onClose: () => void
   onDownload: (obj: S3Object) => void
   onPresign?: (obj: S3Object) => void
@@ -60,7 +62,8 @@ function DetailRow({ label, value, mono, copyable, compact }: { label: string; v
   )
 }
 
-export function DetailPanel({ object, bucketName, onClose, onDownload, onPresign, onNavigate, sizeFormat = 'binary', dateFormat = 'relative', compactMode = false }: DetailPanelProps) {
+export function DetailPanel({ object, bucketName, targetId, onClose, onDownload, onPresign, onNavigate, sizeFormat = 'binary', dateFormat = 'relative', compactMode = false }: DetailPanelProps) {
+  const previewCategory = object.type === 'file' ? getPreviewCategory(object.name) : null
   const s3Uri = `s3://${bucketName}/${object.key}`
   const objectUrl = `https://${bucketName}.s3.amazonaws.com/${object.key}`
   const fullDate = object.lastModified
@@ -119,6 +122,18 @@ export function DetailPanel({ object, bucketName, onClose, onDownload, onPresign
               <span className="text-xs font-semibold text-foreground">{formatDate(object.lastModified, dateFormat)}</span>
               <span className="text-[10px] text-muted-foreground">Modified</span>
             </div>
+          </div>
+        )}
+
+        {/* Preview Section */}
+        {previewCategory && (
+          <div className="border-b border-border">
+            <ObjectPreview
+              targetId={targetId}
+              bucketName={bucketName}
+              objectKey={object.key}
+              category={previewCategory}
+            />
           </div>
         )}
 

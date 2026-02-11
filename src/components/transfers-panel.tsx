@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { motion, AnimatePresence, useMotionValue, useSpring } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/s3-types'
 import {
@@ -68,6 +68,36 @@ function StatusIcon({ status }: { status: TransferStatus }) {
   }
 }
 
+function AnimatedNumber({
+  value,
+  format,
+  stiffness = 80,
+  damping = 20,
+}: {
+  value: number
+  format: (n: number) => string
+  stiffness?: number
+  damping?: number
+}) {
+  const motionValue = useMotionValue(value)
+  const spring = useSpring(motionValue, { stiffness, damping })
+  const [display, setDisplay] = useState(() => format(value))
+  const formatRef = useRef(format)
+  formatRef.current = format
+
+  useEffect(() => {
+    motionValue.set(value)
+  }, [value, motionValue])
+
+  useEffect(() => {
+    return spring.on('change', (latest) => {
+      setDisplay(formatRef.current(latest))
+    })
+  }, [spring])
+
+  return <>{display}</>
+}
+
 function TransferRow({ transfer }: { transfer: Transfer }) {
   const isActive = transfer.status === 'active' || transfer.status === 'queued'
   const isDone = transfer.status === 'completed'
@@ -125,9 +155,19 @@ function TransferRow({ transfer }: { transfer: Transfer }) {
               {formatBytes(transfer.size)}
             </span>
             {isActive && transfer.speed > 0 && (
-              <span className="font-mono text-[10px] text-primary">
-                {formatSpeed(transfer.speed)}
-              </span>
+              <motion.span
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="font-mono text-[10px] text-primary"
+              >
+                <AnimatedNumber
+                  value={transfer.speed}
+                  format={formatSpeed}
+                  stiffness={60}
+                  damping={25}
+                />
+              </motion.span>
             )}
             {isDone && transfer.completedAt && (
               <span className="text-[10px] text-muted-foreground/60">
@@ -184,7 +224,12 @@ function TransferRow({ transfer }: { transfer: Transfer }) {
               className="h-1 flex-1"
             />
             <span className="w-9 flex-shrink-0 text-right font-mono text-[10px] text-muted-foreground">
-              {Math.round(transfer.progress)}%
+              <AnimatedNumber
+                value={transfer.progress}
+                format={(n) => `${Math.round(n)}%`}
+                stiffness={100}
+                damping={25}
+              />
             </span>
           </div>
         )}
@@ -292,7 +337,12 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
               >
                 <Progress value={totalProgress} className="h-1 w-24" />
                 <span className="font-mono text-[10px] text-muted-foreground">
-                  {Math.round(totalProgress)}%
+                  <AnimatedNumber
+                    value={totalProgress}
+                    format={(n) => `${Math.round(n)}%`}
+                    stiffness={100}
+                    damping={25}
+                  />
                 </span>
               </motion.div>
             )}

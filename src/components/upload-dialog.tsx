@@ -25,16 +25,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 
-interface UploadDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  targetId: string
-  bucketName: string
-  currentPath: string
-  onUploadComplete: () => void
-}
-
-interface StagedFile {
+export interface StagedFile {
   id: string
   name: string
   path: string
@@ -42,11 +33,33 @@ interface StagedFile {
   size: number
 }
 
-export function UploadDialog({ open, onOpenChange, targetId, bucketName, currentPath, onUploadComplete }: UploadDialogProps) {
+interface UploadDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  targetId: string
+  bucketName: string
+  currentPath: string
+  onUploadComplete: () => void
+  initialFiles?: StagedFile[]
+}
+
+export function UploadDialog({ open, onOpenChange, targetId, bucketName, currentPath, onUploadComplete, initialFiles }: UploadDialogProps) {
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const initialFilesApplied = useRef(false)
+
+  // Merge initialFiles when dialog opens with them
+  React.useEffect(() => {
+    if (open && initialFiles && initialFiles.length > 0 && !initialFilesApplied.current) {
+      setStagedFiles((prev) => [...prev, ...initialFiles])
+      initialFilesApplied.current = true
+    }
+    if (!open) {
+      initialFilesApplied.current = false
+    }
+  }, [open, initialFiles])
 
   const handleSelectFiles = useCallback(async () => {
     if (isTauriRuntime()) {
@@ -149,9 +162,9 @@ export function UploadDialog({ open, onOpenChange, targetId, bucketName, current
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
-      // Drag-and-drop in Tauri webview doesn't give file paths — show info
+      // In Tauri, native drag-drop on the main window handles file uploads
       if (isTauriRuntime()) {
-        toast.info('Use the file/folder buttons to select files for upload')
+        return
       } else if (e.dataTransfer.files.length > 0) {
         const newFiles: StagedFile[] = Array.from(e.dataTransfer.files).map((file) => ({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
