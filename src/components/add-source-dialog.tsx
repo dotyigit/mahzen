@@ -279,7 +279,7 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent showCloseButton={false} className="max-w-2xl gap-0 overflow-hidden p-0">
+      <DialogContent showCloseButton={false} className="max-w-4xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
           <div className="flex items-center gap-3">
             {step === 'credentials' && (

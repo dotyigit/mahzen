@@ -548,34 +548,30 @@ function AboutTab() {
 
       {/* Version info + update */}
       <div className="rounded-lg border border-border bg-secondary/30 p-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-foreground">
-                Version {displayVersion}
-              </span>
-              {updateState === 'upToDate' && (
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                  Latest
-                </span>
-              )}
-              {updateState === 'available' && (
-                <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[9px] font-medium text-orange-500">
-                  v{updateVersion} available
-                </span>
-              )}
-            </div>
-            <div className="mt-1">
-              <span className="text-[10px] text-muted-foreground">
-                Tauri v2 + Next.js
-              </span>
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground">
+            Version {displayVersion}
+          </span>
+          {updateState === 'upToDate' && (
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+              Latest
+            </span>
+          )}
+          {updateState === 'available' && (
+            <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[9px] font-medium text-orange-500">
+              v{updateVersion} available
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">
+            · Tauri v2 + Next.js
+          </span>
+        </div>
+        <div className="mt-2.5">
           {updateState === 'available' ? (
             <button
               type="button"
               onClick={installUpdate}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="h-3.5 w-3.5" />
               Install & Restart
@@ -586,7 +582,7 @@ function AboutTab() {
               onClick={checkForUpdates}
               disabled={updateState === 'checking' || updateState === 'installing'}
               className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                'flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                 updateState === 'upToDate'
                   ? 'bg-emerald-500/10 text-emerald-500'
                   : updateState === 'error'

@@ -18,6 +18,7 @@ import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog'
 import { PresignDialog } from '@/components/presign-dialog'
 import { TransfersPanel } from '@/components/transfers-panel'
 import { SettingsDialog } from '@/components/settings-dialog'
+import { TitleBar } from '@/components/title-bar'
 import { useActiveTransferCount } from '@/lib/transfer-store'
 import { transferStore } from '@/lib/transfer-store'
 import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles } from '@/lib/tauri'
@@ -75,6 +76,7 @@ export default function Page() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const { setTheme } = useTheme()
   const rememberedPaths = useRef<Map<string, string>>(new Map())
+  const loadRequestId = useRef(0)
 
   // Dialog states
   const [addSourceOpen, setAddSourceOpen] = useState(false)
@@ -157,20 +159,24 @@ export default function Page() {
 
       setSidebarBuckets(allBuckets)
 
-      // Load stats for each bucket in the background
-      for (const bucket of allBuckets) {
-        targetBucketStats(bucket.targetId, bucket.name).then((stats) => {
-          setSidebarBuckets((prev) =>
-            prev.map((b) =>
-              b.targetId === bucket.targetId && b.name === bucket.name
-                ? { ...b, objectCount: stats.objectCount, totalSize: stats.totalSize }
-                : b,
-            ),
-          )
-        }).catch(() => {
-          // silently ignore stats failures — sidebar still shows buckets
-        })
+      // Load stats for each bucket sequentially to avoid S3 rate limiting
+      const loadBucketStats = async (buckets: SidebarBucket[]) => {
+        for (const bucket of buckets) {
+          try {
+            const stats = await targetBucketStats(bucket.targetId, bucket.name)
+            setSidebarBuckets((prev) =>
+              prev.map((b) =>
+                b.targetId === bucket.targetId && b.name === bucket.name
+                  ? { ...b, objectCount: stats.objectCount, totalSize: stats.totalSize }
+                  : b,
+              ),
+            )
+          } catch (_e) {
+            // silently ignore stats failures — sidebar still shows buckets
+          }
+        }
       }
+      loadBucketStats(allBuckets)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error('Failed to load buckets', { description: msg })
@@ -180,6 +186,7 @@ export default function Page() {
   }, [])
 
   const loadObjects = useCallback(async (targetId: string, bucket: string, prefix: string) => {
+    const requestId = ++loadRequestId.current
     setIsObjectsLoading(true)
     setSelectedKeys(new Set())
     setDetailObject(null)
@@ -187,31 +194,40 @@ export default function Page() {
     setHasMore(false)
     try {
       const page = await targetObjectsListPage(targetId, bucket, prefix, PAGE_SIZE, null)
+      if (requestId !== loadRequestId.current) return
       setObjects(page.entries.map(s3EntryToObject))
       setContinuationToken(page.nextContinuationToken)
       setHasMore(page.isTruncated)
     } catch (err) {
+      if (requestId !== loadRequestId.current) return
       const msg = err instanceof Error ? err.message : String(err)
       toast.error('Failed to load objects', { description: msg })
       setObjects([])
     } finally {
-      setIsObjectsLoading(false)
+      if (requestId === loadRequestId.current) {
+        setIsObjectsLoading(false)
+      }
     }
   }, [])
 
   const loadMoreObjects = useCallback(async () => {
     if (!selectedBucket || !hasMore || !continuationToken || isLoadingMore) return
+    const requestId = loadRequestId.current
     setIsLoadingMore(true)
     try {
       const page = await targetObjectsListPage(selectedBucket.targetId, selectedBucket.name, currentPath, PAGE_SIZE, continuationToken)
+      if (requestId !== loadRequestId.current) return
       setObjects(prev => [...prev, ...page.entries.map(s3EntryToObject)])
       setContinuationToken(page.nextContinuationToken)
       setHasMore(page.isTruncated)
     } catch (err) {
+      if (requestId !== loadRequestId.current) return
       const msg = err instanceof Error ? err.message : String(err)
       toast.error('Failed to load more objects', { description: msg })
     } finally {
-      setIsLoadingMore(false)
+      if (requestId === loadRequestId.current) {
+        setIsLoadingMore(false)
+      }
     }
   }, [selectedBucket, hasMore, continuationToken, isLoadingMore, currentPath])
 
@@ -649,7 +665,10 @@ export default function Page() {
   const hasSelectedBucket = !!selectedBucket
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-background">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-background">
+      {/* Title Bar */}
+      <TitleBar />
+
       {/* Drag-Drop Overlay */}
       {isDragging && selectedBucket && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -667,6 +686,7 @@ export default function Page() {
         </div>
       )}
 
+      <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Sidebar */}
       <BucketSidebar
         buckets={sidebarBuckets}
@@ -729,6 +749,7 @@ export default function Page() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
+
         {hasSelectedBucket ? (
           <>
             {/* Toolbar */}
@@ -820,6 +841,7 @@ export default function Page() {
         ) : (
           <WelcomeScreen onAddSource={() => setAddSourceOpen(true)} />
         )}
+      </div>
       </div>
     </div>
   )
