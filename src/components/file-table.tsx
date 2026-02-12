@@ -193,14 +193,6 @@ export function FileTable({
     [onSelectionChange, onClearDetails],
   )
 
-  const handleGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!hasMore || isLoadingMore || !onLoadMore) return
-    const el = e.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) {
-      onLoadMore()
-    }
-  }, [hasMore, isLoadingMore, onLoadMore])
-
   const sortIcon = (field: SortField) => {
     if (sortField !== field)
       return <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-50" />
@@ -210,6 +202,47 @@ export function FileTable({
       <ArrowDown className="h-3 w-3 text-primary" />
     )
   }
+
+  // Grid virtualization: track container width and compute columns
+  const gridParentRef = useRef<HTMLDivElement>(null)
+  const [gridColumns, setGridColumns] = useState(5)
+  const cardMinWidth = 140
+  const gridGap = compactMode ? 4 : 8
+  const gridPadding = compactMode ? 8 : 12
+  const gridRowHeight = compactMode ? 72 : 100
+
+  useEffect(() => {
+    const el = gridParentRef.current
+    if (!el || viewMode !== 'grid') return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? el.clientWidth
+      const available = width - gridPadding * 2
+      const cols = Math.max(1, Math.floor((available + gridGap) / (cardMinWidth + gridGap)))
+      setGridColumns(cols)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [viewMode, gridGap, gridPadding, cardMinWidth])
+
+  const gridRowCount = Math.ceil(sortedObjects.length / gridColumns)
+
+  const gridVirtualizer = useVirtualizer({
+    count: gridRowCount,
+    getScrollElement: () => gridParentRef.current,
+    estimateSize: () => gridRowHeight + gridGap,
+    overscan: 5,
+  })
+
+  // Load more for grid view
+  useEffect(() => {
+    if (!hasMore || isLoadingMore || !onLoadMore || viewMode !== 'grid') return
+    const items = gridVirtualizer.getVirtualItems()
+    if (items.length === 0) return
+    const lastItem = items[items.length - 1]
+    if (lastItem && lastItem.index >= gridRowCount - 3) {
+      onLoadMore()
+    }
+  }, [gridVirtualizer.getVirtualItems(), hasMore, isLoadingMore, onLoadMore, gridRowCount, viewMode])
 
   if (objects.length === 0) {
     return (
@@ -230,38 +263,69 @@ export function FileTable({
   }
 
   if (viewMode === 'grid') {
+    const virtualGridRows = gridVirtualizer.getVirtualItems()
     return (
-      <div ref={parentRef} className={cn('flex-1 overflow-auto', compactMode ? 'p-2' : 'p-3')} onPointerDown={handleBackgroundClick} onScroll={handleGridScroll}>
-        <div className={cn('grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))]', compactMode ? 'gap-1' : 'gap-2')}>
-          {sortedObjects.map((obj) => (
-            <FileContextMenu key={obj.key} obj={obj} bucketName={bucketName} onNavigate={onNavigate} onShowDetails={onShowDetails} onDelete={onDelete} onDownload={onDownload} onPresign={onPresign}>
+      <div
+        ref={gridParentRef}
+        className={cn('flex-1 overflow-y-auto overflow-x-hidden', compactMode ? 'p-2' : 'p-3')}
+        onPointerDown={handleBackgroundClick}
+      >
+        <div
+          className="relative"
+          style={{ height: `${gridVirtualizer.getTotalSize()}px` }}
+        >
+          {virtualGridRows.map((virtualRow) => {
+            const startIndex = virtualRow.index * gridColumns
+            const rowItems = sortedObjects.slice(startIndex, startIndex + gridColumns)
+            return (
               <div
-                data-file-row
-                role="button"
-                tabIndex={0}
-                onClick={(e) => handleRowClick(obj, e)}
-                onDoubleClick={() => handleDoubleClick(obj)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleDoubleClick(obj)
+                key={virtualRow.index}
+                className="absolute left-0 top-0 w-full"
+                style={{
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className={cn(
-                  'group flex cursor-default flex-col items-center rounded-lg border text-center transition-all duration-150',
-                  compactMode ? 'gap-1 p-1.5' : 'gap-2 p-3',
-                  selectedKeys.has(obj.key)
-                    ? 'border-primary/50 bg-primary/5'
-                    : 'border-transparent hover:border-border hover:bg-secondary/50',
-                )}
               >
-                {showFileIcons && <FileIcon name={obj.name} type={obj.type} className={compactMode ? 'h-6 w-6' : 'h-8 w-8'} />}
-                <div className="w-full">
-                  <p className="truncate font-medium text-foreground" style={{ fontSize }}>{obj.name}</p>
-                  {obj.type === 'file' && (
-                    <p className="mt-0.5 text-muted-foreground" style={{ fontSize: fontSize - 2 }}>{formatBytes(obj.size, sizeFormat)}</p>
-                  )}
+                <div
+                  className="grid h-full"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
+                    gap: `${gridGap}px`,
+                  }}
+                >
+                  {rowItems.map((obj) => (
+                    <FileContextMenu key={obj.key} obj={obj} bucketName={bucketName} onNavigate={onNavigate} onShowDetails={onShowDetails} onDelete={onDelete} onDownload={onDownload} onPresign={onPresign}>
+                      <div
+                        data-file-row
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => handleRowClick(obj, e)}
+                        onDoubleClick={() => handleDoubleClick(obj)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleDoubleClick(obj)
+                        }}
+                        className={cn(
+                          'group flex h-full min-w-0 cursor-default flex-col items-center overflow-hidden rounded-lg border text-center transition-all duration-150',
+                          compactMode ? 'gap-1 p-1.5' : 'gap-2 p-3',
+                          selectedKeys.has(obj.key)
+                            ? 'border-primary/50 bg-primary/5'
+                            : 'border-transparent hover:border-border hover:bg-secondary/50',
+                        )}
+                      >
+                        {showFileIcons && <FileIcon name={obj.name} type={obj.type} className={cn('shrink-0', compactMode ? 'h-6 w-6' : 'h-8 w-8')} />}
+                        <div className="w-full min-w-0">
+                          <p className="truncate font-medium text-foreground" style={{ fontSize }}>{obj.name}</p>
+                          {obj.type === 'file' && (
+                            <p className="mt-0.5 text-muted-foreground" style={{ fontSize: fontSize - 2 }}>{formatBytes(obj.size, sizeFormat)}</p>
+                          )}
+                        </div>
+                      </div>
+                    </FileContextMenu>
+                  ))}
                 </div>
               </div>
-            </FileContextMenu>
-          ))}
+            )
+          })}
         </div>
         {hasMore && (
           <div className="flex items-center justify-center py-4">
