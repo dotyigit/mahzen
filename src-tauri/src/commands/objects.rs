@@ -3,8 +3,8 @@ use tauri::{Emitter, State};
 
 use crate::app_state::AppState;
 use crate::core::s3;
-use crate::core::storage::repositories::{credentials_repo, targets_repo};
-use crate::models::{BucketStats, S3ObjectEntry, S3ObjectListPage};
+use crate::core::storage::repositories::{bucket_stats_repo, credentials_repo, targets_repo};
+use crate::models::{BucketStats, CachedBucketStats, S3ObjectEntry, S3ObjectListPage};
 use log::info;
 
 #[derive(Clone, Serialize)]
@@ -209,5 +209,24 @@ pub async fn target_object_presign(
     let (target, credentials) = resolve_target_and_credentials(&state, &target_id)?;
     s3::presign_object(&target, &credentials, &bucket, &key, expires_in_secs)
         .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn bucket_stats_cache_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<CachedBucketStats>, String> {
+    bucket_stats_repo::list(&state.storage).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn bucket_stats_cache_upsert(
+    state: State<'_, AppState>,
+    target_id: String,
+    bucket: String,
+    object_count: i64,
+    total_size: i64,
+) -> Result<(), String> {
+    bucket_stats_repo::upsert(&state.storage, &target_id, &bucket, object_count, total_size)
         .map_err(|e| e.to_string())
 }

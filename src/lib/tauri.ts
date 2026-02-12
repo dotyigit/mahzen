@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   BucketStats,
+  CachedBucketStats,
   DirectoryFileEntry,
   S3BucketSummary,
   S3ConnectionResult,
@@ -61,6 +62,10 @@ export const targetObjectsDownloadZip = (targetId: string, bucket: string, keys:
   invokeSafe<number>("target_objects_download_zip", { targetId, bucket, keys, basePrefix, destPath, transferId, totalSize });
 export const targetObjectPresign = (targetId: string, bucket: string, key: string, expiresInSecs: number) =>
   invokeSafe<string>("target_object_presign", { targetId, bucket, key, expiresInSecs });
+export const bucketStatsCacheList = () =>
+  invokeSafe<CachedBucketStats[]>("bucket_stats_cache_list");
+export const bucketStatsCacheUpsert = (targetId: string, bucket: string, objectCount: number, totalSize: number) =>
+  invokeSafe<void>("bucket_stats_cache_upsert", { targetId, bucket, objectCount, totalSize });
 export const listDirectoryFiles = (path: string) =>
   invokeSafe<DirectoryFileEntry[]>("list_directory_files", { path });
 

@@ -78,6 +78,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_transfer_queue_status ON transfer_queue(status);
         CREATE INDEX IF NOT EXISTS idx_transfer_queue_created_at ON transfer_queue(created_at);
 
+        CREATE TABLE IF NOT EXISTS bucket_stats_cache (
+          target_id TEXT NOT NULL,
+          bucket TEXT NOT NULL,
+          object_count INTEGER NOT NULL,
+          total_size INTEGER NOT NULL,
+          cached_at INTEGER NOT NULL,
+          PRIMARY KEY (target_id, bucket),
+          FOREIGN KEY(target_id) REFERENCES targets(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS app_settings (
           id TEXT PRIMARY KEY DEFAULT 'default',
           theme TEXT NOT NULL DEFAULT 'dark',

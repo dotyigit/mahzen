@@ -93,6 +93,8 @@ pub fn run() {
             commands::objects::target_objects_list_recursive,
             commands::objects::target_objects_download_zip,
             commands::objects::target_object_presign,
+            commands::objects::bucket_stats_cache_list,
+            commands::objects::bucket_stats_cache_upsert,
             commands::files::list_directory_files,
             commands::settings::settings_get,
             commands::settings::settings_upsert,

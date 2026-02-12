@@ -62,6 +62,14 @@ export type SidebarBucket = {
   totalSize: number | null;
 };
 
+export type CachedBucketStats = {
+  targetId: string;
+  bucket: string;
+  objectCount: number;
+  totalSize: number;
+  cachedAt: number;
+};
+
 export type DirectoryFileEntry = {
   absolutePath: string;
   relativePath: string;

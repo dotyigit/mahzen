@@ -8,6 +8,7 @@ import { type S3Object, s3EntryToObject } from '@/lib/s3-types'
 import { BucketSidebar } from '@/components/bucket-sidebar'
 import { BrowserToolbar } from '@/components/browser-toolbar'
 import { FileTable } from '@/components/file-table'
+import { FileTableSkeleton } from '@/components/file-table-skeleton'
 import { DetailPanel } from '@/components/detail-panel'
 import { StatusBar } from '@/components/status-bar'
 import { WelcomeScreen } from '@/components/welcome-screen'
@@ -21,7 +22,7 @@ import { SettingsDialog } from '@/components/settings-dialog'
 import { TitleBar } from '@/components/title-bar'
 import { useActiveTransferCount } from '@/lib/transfer-store'
 import { transferStore } from '@/lib/transfer-store'
-import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles } from '@/lib/tauri'
+import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles, bucketStatsCacheList, bucketStatsCacheUpsert } from '@/lib/tauri'
 import type { AppSettings, SidebarBucket } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -77,6 +78,7 @@ export default function Page() {
   const { setTheme } = useTheme()
   const rememberedPaths = useRef<Map<string, string>>(new Map())
   const loadRequestId = useRef(0)
+  const isFirstBucketLoad = useRef(true)
 
   // Dialog states
   const [addSourceOpen, setAddSourceOpen] = useState(false)
@@ -132,22 +134,36 @@ export default function Page() {
   const loadAllBuckets = useCallback(async () => {
     setIsBucketsLoading(true)
     try {
-      const targets = await targetsList()
+      // Load cached stats in parallel with targets
+      const [targets, cachedStats] = await Promise.all([
+        targetsList(),
+        bucketStatsCacheList().catch(() => []),
+      ])
+
+      // Build a lookup map from cache
+      const cacheMap = new Map<string, { objectCount: number; totalSize: number }>()
+      for (const c of cachedStats) {
+        cacheMap.set(`${c.targetId}:${c.bucket}`, { objectCount: c.objectCount, totalSize: c.totalSize })
+      }
+
       const allBuckets: SidebarBucket[] = []
 
       // Fetch buckets for each target in parallel
       const results = await Promise.allSettled(
         targets.map(async (target) => {
           const buckets = await targetBucketsList(target.id)
-          return buckets.map((b) => ({
-            name: b.name,
-            region: target.region || 'auto',
-            targetId: target.id,
-            targetName: target.name,
-            provider: target.provider,
-            objectCount: null,
-            totalSize: null,
-          }))
+          return buckets.map((b) => {
+            const cached = cacheMap.get(`${target.id}:${b.name}`)
+            return {
+              name: b.name,
+              region: target.region || 'auto',
+              targetId: target.id,
+              targetName: target.name,
+              provider: target.provider,
+              objectCount: cached?.objectCount ?? null,
+              totalSize: cached?.totalSize ?? null,
+            }
+          })
         })
       )
 
@@ -159,7 +175,7 @@ export default function Page() {
 
       setSidebarBuckets(allBuckets)
 
-      // Load stats for each bucket sequentially to avoid S3 rate limiting
+      // Refresh stats from S3 sequentially and update cache
       const loadBucketStats = async (buckets: SidebarBucket[]) => {
         for (const bucket of buckets) {
           try {
@@ -171,6 +187,8 @@ export default function Page() {
                   : b,
               ),
             )
+            // Persist to cache
+            bucketStatsCacheUpsert(bucket.targetId, bucket.name, stats.objectCount, stats.totalSize).catch(() => {})
           } catch (_e) {
             // silently ignore stats failures — sidebar still shows buckets
           }
@@ -206,6 +224,7 @@ export default function Page() {
     } finally {
       if (requestId === loadRequestId.current) {
         setIsObjectsLoading(false)
+        isFirstBucketLoad.current = false
       }
     }
   }, [])
@@ -777,29 +796,33 @@ export default function Page() {
 
             {/* File Browser + Detail Panel */}
             <div className="flex min-h-0 flex-1 overflow-hidden">
-              <div className={`flex flex-1 transition-opacity duration-300 ${isRefreshing || isObjectsLoading ? 'opacity-50' : 'opacity-100'}`}>
-                <FileTable
-                  objects={filteredObjects}
-                  onNavigate={navigateTo}
-                  selectedKeys={selectedKeys}
-                  onSelectionChange={setSelectedKeys}
-                  viewMode={viewMode}
-                  onShowDetails={handleShowDetails}
-                  onClearDetails={handleCloseDetails}
-                  bucketName={selectedBucket.name}
-                  onDelete={handleDeleteObjects}
-                  onDownload={handleDownloadObject}
-                  onPresign={handlePresignObject}
-                  doubleClickNav={settings.doubleClickNav}
-                  showFileIcons={settings.showFileIcons}
-                  dateFormat={settings.dateFormat as 'relative' | 'absolute' | 'iso'}
-                  sizeFormat={settings.sizeFormat as 'binary' | 'decimal'}
-                  fontSize={settings.fontSize}
-                  compactMode={settings.compactMode}
-                  hasMore={hasMore}
-                  isLoadingMore={isLoadingMore}
-                  onLoadMore={loadMoreObjects}
-                />
+              <div className={`flex flex-1 transition-opacity duration-300 ${!isFirstBucketLoad.current && (isRefreshing || isObjectsLoading) ? 'opacity-50' : 'opacity-100'}`}>
+                {isFirstBucketLoad.current && isObjectsLoading ? (
+                  <FileTableSkeleton compactMode={settings.compactMode} />
+                ) : (
+                  <FileTable
+                    objects={filteredObjects}
+                    onNavigate={navigateTo}
+                    selectedKeys={selectedKeys}
+                    onSelectionChange={setSelectedKeys}
+                    viewMode={viewMode}
+                    onShowDetails={handleShowDetails}
+                    onClearDetails={handleCloseDetails}
+                    bucketName={selectedBucket.name}
+                    onDelete={handleDeleteObjects}
+                    onDownload={handleDownloadObject}
+                    onPresign={handlePresignObject}
+                    doubleClickNav={settings.doubleClickNav}
+                    showFileIcons={settings.showFileIcons}
+                    dateFormat={settings.dateFormat as 'relative' | 'absolute' | 'iso'}
+                    sizeFormat={settings.sizeFormat as 'binary' | 'decimal'}
+                    fontSize={settings.fontSize}
+                    compactMode={settings.compactMode}
+                    hasMore={hasMore}
+                    isLoadingMore={isLoadingMore}
+                    onLoadMore={loadMoreObjects}
+                  />
+                )}
               </div>
               <AnimatePresence>
                 {detailObject && (

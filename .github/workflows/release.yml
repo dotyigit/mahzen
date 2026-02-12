@@ -130,7 +130,10 @@ jobs:
           gh release download "$TAG" --repo "$REPO" --dir assets --pattern "*.sig" || true
           gh release download "$TAG" --repo "$REPO" --dir assets --pattern "latest.json" || true
 
-          echo "Downloaded assets:"
+          echo "Downloaded .sig assets:"
+          ls -la assets/*.sig 2>/dev/null || echo "  No .sig files found"
+          echo ""
+          echo "All downloaded assets:"
           ls -la assets/
 
           # Build the merged latest.json with all platform entries
@@ -191,8 +194,12 @@ jobs:
               '.platforms["darwin-x86_64"] = {signature: $sig, url: $url}')
           fi
 
-          # Linux x86_64 (.AppImage.tar.gz)
-          SIG_FILE=$(ls assets/*.AppImage.tar.gz.sig 2>/dev/null | head -1)
+          # Linux x86_64 (.AppImage — v2 reuses directly)
+          SIG_FILE=$(ls assets/*.AppImage.sig 2>/dev/null | head -1)
+          if [ -z "$SIG_FILE" ]; then
+            # v1 compatible fallback
+            SIG_FILE=$(ls assets/*.AppImage.tar.gz.sig 2>/dev/null | head -1)
+          fi
           if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
             SIG=$(cat "$SIG_FILE")
             ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
@@ -202,8 +209,18 @@ jobs:
               '.platforms["linux-x86_64"] = {signature: $sig, url: $url}')
           fi
 
-          # Windows x86_64 (.nsis.zip)
-          SIG_FILE=$(ls assets/*.nsis.zip.sig 2>/dev/null | head -1)
+          # Windows x86_64 (.exe or .msi — v2 reuses directly)
+          SIG_FILE=$(ls assets/*setup*.exe.sig 2>/dev/null | head -1)
+          if [ -z "$SIG_FILE" ]; then
+            SIG_FILE=$(ls assets/*.msi.sig 2>/dev/null | head -1)
+          fi
+          # v1 compatible fallback
+          if [ -z "$SIG_FILE" ]; then
+            SIG_FILE=$(ls assets/*.nsis.zip.sig 2>/dev/null | head -1)
+          fi
+          if [ -z "$SIG_FILE" ]; then
+            SIG_FILE=$(ls assets/*.msi.zip.sig 2>/dev/null | head -1)
+          fi
           if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
             SIG=$(cat "$SIG_FILE")
             ARTIFACT_NAME=$(basename "$SIG_FILE" .sig)
@@ -216,6 +233,9 @@ jobs:
           echo "$JSON" | jq . > latest.json
           echo "Generated latest.json:"
           cat latest.json
+          echo ""
+          echo "Platforms included:"
+          echo "$JSON" | jq -r '.platforms | keys[]'
 
       - name: Upload merged latest.json
         env:

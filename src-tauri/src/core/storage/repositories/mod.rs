@@ -1,3 +1,4 @@
+pub mod bucket_stats_repo;
 pub mod credentials_repo;
 pub mod settings_repo;
 pub mod sync_profiles_repo;

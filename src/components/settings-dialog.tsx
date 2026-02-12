@@ -17,7 +17,6 @@ import {
   Download,
   Loader2,
   Shield,
-  Database,
 } from 'lucide-react'
 import {
   Dialog,
@@ -477,7 +476,7 @@ function ShortcutsTab() {
 }
 
 function AboutTab() {
-  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'installing' | 'upToDate' | 'error'>('idle')
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'installing' | 'upToDate' | 'error' | 'unavailable'>('idle')
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
 
@@ -502,9 +501,14 @@ function AboutTab() {
         setUpdateState('upToDate')
         setTimeout(() => setUpdateState('idle'), 4000)
       }
-    } catch {
-      setUpdateState('error')
-      setTimeout(() => setUpdateState('idle'), 4000)
+    } catch (e) {
+      const msg = String(e).toLowerCase()
+      if (msg.includes('platform') || msg.includes('target') || msg.includes('not found')) {
+        setUpdateState('unavailable')
+      } else {
+        setUpdateState('error')
+      }
+      setTimeout(() => setUpdateState('idle'), 6000)
     }
   }
 
@@ -532,9 +536,7 @@ function AboutTab() {
     <div className="space-y-5">
       {/* App identity */}
       <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-          <Database className="h-6 w-6 text-primary" />
-        </div>
+        <img src="/app-icon.png" alt="Mahzen" className="h-12 w-12 flex-shrink-0 rounded-xl" />
         <div>
           <h3 className="text-sm font-semibold text-foreground">Mahzen</h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -585,7 +587,7 @@ function AboutTab() {
                 'flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                 updateState === 'upToDate'
                   ? 'bg-emerald-500/10 text-emerald-500'
-                  : updateState === 'error'
+                  : updateState === 'error' || updateState === 'unavailable'
                     ? 'bg-destructive/10 text-destructive'
                     : 'bg-secondary text-foreground hover:bg-secondary/80',
               )}
@@ -605,10 +607,15 @@ function AboutTab() {
                   <Check className="h-3.5 w-3.5" />
                   Up to date
                 </>
+              ) : updateState === 'unavailable' ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  No update for this platform
+                </>
               ) : updateState === 'error' ? (
                 <>
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Check failed
+                  Check failed — try again
                 </>
               ) : (
                 <>

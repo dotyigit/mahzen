@@ -90,6 +90,16 @@ pub struct BucketStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CachedBucketStats {
+    pub target_id: String,
+    pub bucket: String,
+    pub object_count: i64,
+    pub total_size: i64,
+    pub cached_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirectoryFileEntry {
     pub absolute_path: String,
     pub relative_path: String,
