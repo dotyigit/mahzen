@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Mahzen",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dev.mahzen",
   "build": {
     "frontendDist": "../out",
@@ -28,7 +28,9 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
