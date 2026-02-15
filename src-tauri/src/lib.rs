@@ -18,6 +18,39 @@ pub fn run() {
             fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("mahzen.sqlite");
             let state = AppState::new(db_path)?;
+
+            // Crash recovery: reset interrupted clone jobs to paused
+            if let Ok(crashed) = core::storage::repositories::clone_repo::find_jobs_by_status(
+                &state.storage,
+                &["running", "enumerating"],
+            ) {
+                for job in &crashed {
+                    let _ = core::storage::repositories::clone_repo::update_job_status(
+                        &state.storage,
+                        &job.id,
+                        "paused",
+                    );
+                    let _ = core::storage::repositories::clone_repo::reset_active_items(
+                        &state.storage,
+                        &job.id,
+                    );
+                }
+            }
+
+            // Crash recovery: reset interrupted index jobs to idle
+            if let Ok(indexes) = core::storage::repositories::index_repo::list_index_states(&state.storage) {
+                for idx in &indexes {
+                    if idx.status == "indexing" {
+                        let _ = core::storage::repositories::index_repo::upsert_index_state(
+                            &state.storage,
+                            &idx.target_id,
+                            &idx.bucket,
+                            "idle",
+                        );
+                    }
+                }
+            }
+
             app.manage(state);
 
             let open_item = MenuItem::with_id(app, "open-main", "Open Mahzen", true, None::<&str>)?;
@@ -105,6 +138,22 @@ pub fn run() {
             commands::transfers::transfer_queue_upsert,
             commands::transfers::transfer_queue_delete,
             commands::transfers::transfer_queue_clear_terminal,
+            commands::clone::clone_start,
+            commands::clone::clone_pause,
+            commands::clone::clone_resume,
+            commands::clone::clone_cancel,
+            commands::clone::clone_job_list,
+            commands::clone::clone_job_get,
+            commands::clone::clone_job_delete,
+            commands::clone::clone_retry_failed,
+            commands::clone::clone_job_items_list,
+            commands::indexing::index_start,
+            commands::indexing::index_cancel,
+            commands::indexing::index_delete,
+            commands::indexing::index_state_get,
+            commands::indexing::index_state_list,
+            commands::indexing::index_browse,
+            commands::indexing::index_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -43,10 +43,12 @@ interface BucketSidebarProps {
   onAddSource: () => void
   onRefresh: () => void
   onDeleteBucket: (bucket: SidebarBucket) => void
+  onCloneBucket?: (bucket: SidebarBucket) => void
+  onIndexBucket?: (bucket: SidebarBucket) => void
   onSettings: () => void
 }
 
-function BucketContextMenu({ children, bucket, onRefresh, onDelete }: { children: React.ReactNode; bucket: SidebarBucket; onRefresh: () => void; onDelete: () => void }) {
+function BucketContextMenu({ children, bucket, onRefresh, onDelete, onClone, onIndex }: { children: React.ReactNode; bucket: SidebarBucket; onRefresh: () => void; onDelete: () => void; onClone?: () => void; onIndex?: () => void }) {
   const bucketArn = `arn:aws:s3:::${bucket.name}`
   const s3Uri = `s3://${bucket.name}`
 
@@ -82,6 +84,18 @@ function BucketContextMenu({ children, bucket, onRefresh, onDelete }: { children
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuSeparator />
+        {onClone && (
+          <ContextMenuItem className="gap-2 text-xs" onSelect={onClone}>
+            <Copy className="h-3.5 w-3.5" />
+            Clone Bucket
+          </ContextMenuItem>
+        )}
+        {onIndex && (
+          <ContextMenuItem className="gap-2 text-xs" onSelect={onIndex}>
+            <Database className="h-3.5 w-3.5" />
+            Index Bucket
+          </ContextMenuItem>
+        )}
         <ContextMenuItem className="gap-2 text-xs" onSelect={onRefresh}>
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
@@ -96,7 +110,7 @@ function BucketContextMenu({ children, bucket, onRefresh, onDelete }: { children
   )
 }
 
-export function BucketSidebar({ buckets, selectedBucket, isLoading, onSelectBucket, onAddSource, onRefresh, onDeleteBucket, onSettings }: BucketSidebarProps) {
+export function BucketSidebar({ buckets, selectedBucket, isLoading, onSelectBucket, onAddSource, onRefresh, onDeleteBucket, onCloneBucket, onIndexBucket, onSettings }: BucketSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredBuckets = buckets.filter((b) =>
@@ -195,7 +209,7 @@ export function BucketSidebar({ buckets, selectedBucket, isLoading, onSelectBuck
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 30, delay: index * 0.03 }}
                   >
-                    <BucketContextMenu bucket={bucket} onRefresh={onRefresh} onDelete={() => onDeleteBucket(bucket)}>
+                    <BucketContextMenu bucket={bucket} onRefresh={onRefresh} onDelete={() => onDeleteBucket(bucket)} onClone={onCloneBucket ? () => onCloneBucket(bucket) : undefined} onIndex={onIndexBucket ? () => onIndexBucket(bucket) : undefined}>
                       <button
                         type="button"
                         onClick={() => onSelectBucket(bucket)}

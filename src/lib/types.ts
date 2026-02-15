@@ -116,6 +116,91 @@ export type AppSettings = {
   verifyChecksum: boolean;
 };
 
+export type CloneConflictPolicy = "skip" | "overwrite" | "overwriteIfNewer";
+
+export type CloneJobStatus =
+  | "pending"
+  | "enumerating"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type CloneJob = {
+  id: string;
+  status: CloneJobStatus;
+  sourceTargetId: string;
+  sourceBucket: string;
+  sourcePrefix: string;
+  destTargetId: string;
+  destBucket: string;
+  destPrefix: string;
+  conflictPolicy: CloneConflictPolicy;
+  isSameTarget: boolean;
+  enumerationToken: string | null;
+  enumerationComplete: boolean;
+  totalItems: number;
+  completedItems: number;
+  failedItems: number;
+  skippedItems: number;
+  totalBytes: number;
+  transferredBytes: number;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+};
+
+export type CloneJobItem = {
+  id: string;
+  jobId: string;
+  sourceKey: string;
+  destKey: string;
+  size: number;
+  sourceEtag: string | null;
+  sourceLastModified: string | null;
+  status: "pending" | "active" | "completed" | "skipped" | "failed";
+  errorMessage: string | null;
+  retryCount: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CloneProgressEvent = {
+  jobId: string;
+  status: string;
+  totalItems: number;
+  completedItems: number;
+  failedItems: number;
+  skippedItems: number;
+  totalBytes: number;
+  transferredBytes: number;
+  currentKey: string | null;
+};
+
+export type BucketIndexStatus = "idle" | "indexing" | "error";
+
+export type BucketIndexState = {
+  targetId: string;
+  bucket: string;
+  status: BucketIndexStatus;
+  totalObjects: number;
+  indexedObjects: number;
+  totalSize: number;
+  continuationToken: string | null;
+  lastIndexedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type IndexProgressEvent = {
+  targetId: string;
+  bucket: string;
+  status: string;
+  indexedObjects: number;
+  totalSize: number;
+};
+
 export type TransferQueueItem = {
   id: string;
   direction: string;
