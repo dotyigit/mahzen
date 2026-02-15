@@ -214,33 +214,31 @@ pub async fn list_objects_page(
         .await
         .map_err(|e| anyhow!("S3 list objects failed: {e}"))?;
 
-    // Common prefixes → folders (only on first page)
-    if continuation_token.is_none() {
-        if let Some(prefixes) = output.common_prefixes {
-            for cp in prefixes {
-                if let Some(p) = cp.prefix {
-                    if p == prefix {
-                        continue;
-                    }
-                    let name = p
-                        .strip_prefix(prefix)
-                        .unwrap_or(&p)
-                        .trim_end_matches('/')
-                        .to_string();
-                    if name.is_empty() {
-                        continue;
-                    }
-                    entries.push(S3ObjectEntry {
-                        key: p.clone(),
-                        name,
-                        size: 0,
-                        last_modified: None,
-                        etag: None,
-                        storage_class: None,
-                        is_folder: true,
-                        content_type: None,
-                    });
+    // Common prefixes → folders (include from every page)
+    if let Some(prefixes) = output.common_prefixes {
+        for cp in prefixes {
+            if let Some(p) = cp.prefix {
+                if p == prefix {
+                    continue;
                 }
+                let name = p
+                    .strip_prefix(prefix)
+                    .unwrap_or(&p)
+                    .trim_end_matches('/')
+                    .to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                entries.push(S3ObjectEntry {
+                    key: p.clone(),
+                    name,
+                    size: 0,
+                    last_modified: None,
+                    etag: None,
+                    storage_class: None,
+                    is_folder: true,
+                    content_type: None,
+                });
             }
         }
     }
@@ -663,6 +661,174 @@ pub async fn download_objects_as_zip(
     let metadata = std::fs::metadata(dest_path)
         .map_err(|e| anyhow!("Failed to read ZIP file size: {e}"))?;
     Ok(metadata.len())
+}
+
+pub async fn head_object(
+    target: &StorageTarget,
+    credentials: &TargetCredentials,
+    bucket: &str,
+    key: &str,
+) -> Result<Option<(i64, Option<String>)>> {
+    let client = build_client(target, credentials).await?;
+    match client.head_object().bucket(bucket).key(key).send().await {
+        Ok(output) => {
+            let size = output.content_length().unwrap_or(0);
+            let last_modified = output.last_modified().map(|dt| dt.to_string());
+            Ok(Some((size, last_modified)))
+        }
+        Err(e) => {
+            if let aws_sdk_s3::error::SdkError::ServiceError(service_err) = &e {
+                if service_err.err().is_not_found() {
+                    return Ok(None);
+                }
+            }
+            Err(anyhow!("S3 head object failed: {e}"))
+        }
+    }
+}
+
+pub async fn copy_object(
+    target: &StorageTarget,
+    credentials: &TargetCredentials,
+    source_bucket: &str,
+    source_key: &str,
+    dest_bucket: &str,
+    dest_key: &str,
+    source_size: i64,
+) -> Result<()> {
+    let client = build_client(target, credentials).await?;
+    let copy_source = format!("{}/{}", source_bucket, source_key);
+
+    const FIVE_GB: i64 = 5 * 1024 * 1024 * 1024;
+    const PART_SIZE: i64 = 100 * 1024 * 1024;
+
+    if source_size <= FIVE_GB {
+        client
+            .copy_object()
+            .copy_source(&copy_source)
+            .bucket(dest_bucket)
+            .key(dest_key)
+            .send()
+            .await
+            .map_err(|e| anyhow!("S3 copy object failed: {e}"))?;
+    } else {
+        let create = client
+            .create_multipart_upload()
+            .bucket(dest_bucket)
+            .key(dest_key)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to create multipart upload: {e}"))?;
+
+        let upload_id = create
+            .upload_id()
+            .ok_or_else(|| anyhow!("No upload_id returned"))?
+            .to_string();
+
+        let mut parts = Vec::new();
+        let mut offset: i64 = 0;
+        let mut part_number: i32 = 1;
+
+        while offset < source_size {
+            let end = std::cmp::min(offset + PART_SIZE - 1, source_size - 1);
+            let range = format!("bytes={}-{}", offset, end);
+
+            let part_result = client
+                .upload_part_copy()
+                .copy_source(&copy_source)
+                .copy_source_range(&range)
+                .bucket(dest_bucket)
+                .key(dest_key)
+                .upload_id(&upload_id)
+                .part_number(part_number)
+                .send()
+                .await;
+
+            match part_result {
+                Ok(part) => {
+                    let etag = part
+                        .copy_part_result()
+                        .and_then(|r| r.e_tag().map(|s| s.to_string()))
+                        .ok_or_else(|| anyhow!("No ETag for part {part_number}"))?;
+
+                    parts.push(
+                        aws_sdk_s3::types::CompletedPart::builder()
+                            .e_tag(etag)
+                            .part_number(part_number)
+                            .build(),
+                    );
+                }
+                Err(e) => {
+                    let _ = client
+                        .abort_multipart_upload()
+                        .bucket(dest_bucket)
+                        .key(dest_key)
+                        .upload_id(&upload_id)
+                        .send()
+                        .await;
+                    return Err(anyhow!("UploadPartCopy failed for part {part_number}: {e}"));
+                }
+            }
+
+            offset = end + 1;
+            part_number += 1;
+        }
+
+        let completed = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .set_parts(Some(parts))
+            .build();
+
+        client
+            .complete_multipart_upload()
+            .bucket(dest_bucket)
+            .key(dest_key)
+            .upload_id(&upload_id)
+            .multipart_upload(completed)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to complete multipart copy: {e}"))?;
+    }
+
+    Ok(())
+}
+
+pub async fn cross_target_copy(
+    source_target: &StorageTarget,
+    source_credentials: &TargetCredentials,
+    source_bucket: &str,
+    source_key: &str,
+    dest_target: &StorageTarget,
+    dest_credentials: &TargetCredentials,
+    dest_bucket: &str,
+    dest_key: &str,
+    temp_dir: &Path,
+    on_progress: impl Fn(u64, u64),
+) -> Result<()> {
+    let temp_file = temp_dir.join(format!("clone_{}", uuid::Uuid::now_v7()));
+    let temp_path = temp_file
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid temp path"))?;
+
+    let download_result = get_object(
+        source_target,
+        source_credentials,
+        source_bucket,
+        source_key,
+        temp_path,
+        &on_progress,
+    )
+    .await;
+
+    if let Err(e) = download_result {
+        let _ = std::fs::remove_file(&temp_file);
+        return Err(e);
+    }
+
+    let upload_result =
+        put_object(dest_target, dest_credentials, dest_bucket, dest_key, temp_path).await;
+
+    let _ = std::fs::remove_file(&temp_file);
+    upload_result
 }
 
 fn guess_content_type(key: &str) -> String {

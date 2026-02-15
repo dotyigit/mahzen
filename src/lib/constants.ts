@@ -31,6 +31,22 @@ export const transferStatuses = [
 
 export const terminalStatuses = ["completed", "failed", "cancelled"] as const;
 
+export const cloneConflictPolicies = [
+  { value: "skip", label: "Skip existing objects" },
+  { value: "overwrite", label: "Overwrite all" },
+  { value: "overwriteIfNewer", label: "Overwrite if source is newer" },
+] as const;
+
+export const cloneJobStatuses = [
+  "pending",
+  "enumerating",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+
 export const shortcuts = {
   commandPalette: { key: "k", meta: true, label: "Cmd+K" },
   toggleSidebar: { key: "b", meta: true, label: "Cmd+B" },

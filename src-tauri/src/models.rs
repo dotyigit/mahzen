@@ -149,6 +149,103 @@ pub struct AppSettings {
     pub verify_checksum: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneJob {
+    pub id: String,
+    pub status: String,
+    pub source_target_id: String,
+    pub source_bucket: String,
+    pub source_prefix: String,
+    pub dest_target_id: String,
+    pub dest_bucket: String,
+    pub dest_prefix: String,
+    pub conflict_policy: String,
+    pub is_same_target: bool,
+    pub enumeration_token: Option<String>,
+    pub enumeration_complete: bool,
+    pub total_items: i64,
+    pub completed_items: i64,
+    pub failed_items: i64,
+    pub skipped_items: i64,
+    pub total_bytes: i64,
+    pub transferred_bytes: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneJobItem {
+    pub id: String,
+    pub job_id: String,
+    pub source_key: String,
+    pub dest_key: String,
+    pub size: i64,
+    pub source_etag: Option<String>,
+    pub source_last_modified: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub retry_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneProgressEvent {
+    pub job_id: String,
+    pub status: String,
+    pub total_items: i64,
+    pub completed_items: i64,
+    pub failed_items: i64,
+    pub skipped_items: i64,
+    pub total_bytes: i64,
+    pub transferred_bytes: i64,
+    pub current_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketIndexState {
+    pub target_id: String,
+    pub bucket: String,
+    pub status: String,
+    pub total_objects: i64,
+    pub indexed_objects: i64,
+    pub total_size: i64,
+    pub continuation_token: Option<String>,
+    pub last_indexed_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketIndexObject {
+    pub target_id: String,
+    pub bucket: String,
+    pub key: String,
+    pub parent_prefix: String,
+    pub name: String,
+    pub is_folder: bool,
+    pub size: i64,
+    pub last_modified: Option<String>,
+    pub etag: Option<String>,
+    pub storage_class: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexProgressEvent {
+    pub target_id: String,
+    pub bucket: String,
+    pub status: String,
+    pub indexed_objects: i64,
+    pub total_size: i64,
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {

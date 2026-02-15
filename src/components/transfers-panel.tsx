@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence, useMotionValue, useSpring } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/s3-types'
@@ -25,9 +25,23 @@ import {
   Clock,
   Ban,
   ArrowUpDown,
+  Copy,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  cloneJobList,
+  clonePause,
+  cloneResume,
+  cloneCancel,
+  cloneJobDelete,
+  cloneRetryFailed,
+  isTauriRuntime,
+} from '@/lib/tauri'
+import { CloneJobTable, type CloneActions } from '@/components/clone/clone-job-table'
+import type { CloneJob } from '@/lib/types'
 
 type FilterTab = 'all' | 'active' | 'completed' | 'failed'
+type PanelTab = 'transfers' | 'clones'
 
 function formatSpeed(bytesPerSec: number): string {
   if (bytesPerSec <= 0) return '--'
@@ -254,6 +268,56 @@ interface TransfersPanelProps {
 export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
   const transfers = useTransfers()
   const [filter, setFilter] = useState<FilterTab>('all')
+  const [panelTab, setPanelTab] = useState<PanelTab>('transfers')
+  const [cloneJobs, setCloneJobs] = useState<CloneJob[]>([])
+
+  // Load clone jobs on mount and periodically
+  const refreshCloneJobs = useCallback(async () => {
+    if (!isTauriRuntime()) return
+    try {
+      setCloneJobs(await cloneJobList())
+    } catch {
+      // silently ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshCloneJobs()
+    const interval = setInterval(() => void refreshCloneJobs(), 3000)
+    return () => clearInterval(interval)
+  }, [refreshCloneJobs])
+
+  const cloneActions: CloneActions = useMemo(() => ({
+    onPause: async (jobId) => {
+      await clonePause(jobId)
+      await refreshCloneJobs()
+    },
+    onResume: async (jobId) => {
+      await cloneResume(jobId)
+      await refreshCloneJobs()
+      toast.success('Clone job resumed')
+    },
+    onCancel: async (jobId) => {
+      await cloneCancel(jobId)
+      await refreshCloneJobs()
+      toast.success('Clone job cancelled')
+    },
+    onDelete: async (jobId) => {
+      await cloneJobDelete(jobId)
+      await refreshCloneJobs()
+      toast.success('Clone job deleted')
+    },
+    onRetryFailed: async (jobId) => {
+      await cloneRetryFailed(jobId)
+      await refreshCloneJobs()
+      toast.success('Retrying failed items')
+    },
+  }), [refreshCloneJobs])
+
+  const activeClones = useMemo(
+    () => cloneJobs.filter((j) => j.status === 'running' || j.status === 'enumerating').length,
+    [cloneJobs],
+  )
 
   const counts = useMemo(() => ({
     all: transfers.length,
@@ -298,9 +362,9 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
       >
         <div className="flex items-center gap-2.5">
           <ArrowUpDown className="h-3.5 w-3.5 text-primary" />
-          <span className="text-xs font-semibold text-foreground">Transfers</span>
+          <span className="text-xs font-semibold text-foreground">Activity</span>
           <AnimatePresence mode="wait">
-            {counts.active > 0 ? (
+            {(counts.active > 0 || activeClones > 0) ? (
               <motion.span
                 key="active-badge"
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -309,9 +373,11 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
                 className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
               >
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                {counts.active} active
+                {counts.active > 0 && <>{counts.active} transfer{counts.active !== 1 ? 's' : ''}</>}
+                {counts.active > 0 && activeClones > 0 && <span className="mx-0.5">&middot;</span>}
+                {activeClones > 0 && <>{activeClones} clone{activeClones !== 1 ? 's' : ''}</>}
               </motion.span>
-            ) : counts.all > 0 ? (
+            ) : (counts.all > 0 || cloneJobs.length > 0) ? (
               <motion.span
                 key="total-badge"
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -320,6 +386,7 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
                 className="text-[10px] text-muted-foreground"
               >
                 {counts.all} transfer{counts.all !== 1 ? 's' : ''}
+                {cloneJobs.length > 0 && <> &middot; {cloneJobs.length} clone{cloneJobs.length !== 1 ? 's' : ''}</>}
               </motion.span>
             ) : null}
           </AnimatePresence>
@@ -362,45 +429,60 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
           <motion.div
             key="transfers-content"
             initial={{ height: 0 }}
-            animate={{ height: 208 }}
+            animate={{ height: 240 }}
             exit={{ height: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className="overflow-hidden"
           >
-            <div className="flex h-[208px] flex-col">
-              {/* Tabs + Actions */}
+            <div className="flex h-[240px] flex-col">
+              {/* Panel Tabs */}
               <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 border-t px-4 py-1.5">
-                <div className="flex items-center gap-0.5">
-                  {tabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setFilter(tab.id)}
-                      className={cn(
-                        'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
-                        filter === tab.id
-                          ? 'bg-secondary text-foreground'
-                          : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
-                      )}
-                    >
-                      {tab.label}
-                      {tab.count > 0 && (
-                        <span
-                          className={cn(
-                            'min-w-[16px] rounded-full px-1 py-px text-center text-[9px]',
-                            filter === tab.id
-                              ? 'bg-primary/15 text-primary'
-                              : 'bg-secondary text-muted-foreground',
-                          )}
-                        >
-                          {tab.count}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPanelTab('transfers')}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                      panelTab === 'transfers'
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+                    )}
+                  >
+                    <ArrowUpDown className="h-3 w-3" />
+                    Transfers
+                    {counts.all > 0 && (
+                      <span className={cn(
+                        'min-w-[16px] rounded-full px-1 py-px text-center text-[9px]',
+                        panelTab === 'transfers' ? 'bg-primary/15 text-primary' : 'bg-secondary text-muted-foreground',
+                      )}>
+                        {counts.all}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelTab('clones')}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                      panelTab === 'clones'
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+                    )}
+                  >
+                    <Copy className="h-3 w-3" />
+                    Clone Jobs
+                    {cloneJobs.length > 0 && (
+                      <span className={cn(
+                        'min-w-[16px] rounded-full px-1 py-px text-center text-[9px]',
+                        panelTab === 'clones' ? 'bg-primary/15 text-primary' : 'bg-secondary text-muted-foreground',
+                      )}>
+                        {cloneJobs.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
-                {counts.completed + counts.failed > 0 && (
+                {panelTab === 'transfers' && (counts.completed + counts.failed > 0) && (
                   <button
                     type="button"
                     onClick={() => transferStore.clearCompleted()}
@@ -412,24 +494,67 @@ export function TransfersPanel({ isExpanded, onToggle }: TransfersPanelProps) {
                 )}
               </div>
 
-              {/* Transfer list */}
-              {filtered.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-1.5 text-muted-foreground">
-                  <ArrowUpDown className="h-5 w-5 opacity-30" />
-                  <p className="text-xs">
-                    {filter === 'all'
-                      ? 'No transfers yet'
-                      : `No ${filter} transfers`}
-                  </p>
-                </div>
-              ) : (
-                <ScrollArea className="min-h-0 flex-1">
-                  <AnimatePresence initial={false}>
-                    {filtered.map((transfer) => (
-                      <TransferRow key={transfer.id} transfer={transfer} />
+              {/* Transfers Tab Content */}
+              {panelTab === 'transfers' && (
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  {/* Transfer Filter Tabs */}
+                  <div className="flex flex-shrink-0 items-center gap-0.5 border-b border-border/30 px-4 py-1">
+                    {tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setFilter(tab.id)}
+                        className={cn(
+                          'flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                          filter === tab.id
+                            ? 'bg-secondary text-foreground'
+                            : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+                        )}
+                      >
+                        {tab.label}
+                        {tab.count > 0 && (
+                          <span
+                            className={cn(
+                              'min-w-[16px] rounded-full px-1 py-px text-center text-[9px]',
+                              filter === tab.id
+                                ? 'bg-primary/15 text-primary'
+                                : 'bg-secondary text-muted-foreground',
+                            )}
+                          >
+                            {tab.count}
+                          </span>
+                        )}
+                      </button>
                     ))}
-                  </AnimatePresence>
-                </ScrollArea>
+                  </div>
+
+                  {/* Transfer list */}
+                  {filtered.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                      <ArrowUpDown className="h-5 w-5 opacity-30" />
+                      <p className="text-xs">
+                        {filter === 'all'
+                          ? 'No transfers yet'
+                          : `No ${filter} transfers`}
+                      </p>
+                    </div>
+                  ) : (
+                    <ScrollArea className="min-h-0 flex-1">
+                      <AnimatePresence initial={false}>
+                        {filtered.map((transfer) => (
+                          <TransferRow key={transfer.id} transfer={transfer} />
+                        ))}
+                      </AnimatePresence>
+                    </ScrollArea>
+                  )}
+                </div>
+              )}
+
+              {/* Clone Jobs Tab Content */}
+              {panelTab === 'clones' && (
+                <div className="flex-1 overflow-auto p-3">
+                  <CloneJobTable jobs={cloneJobs} actions={cloneActions} />
+                </div>
               )}
             </div>
           </motion.div>

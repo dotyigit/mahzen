@@ -88,6 +88,91 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
           FOREIGN KEY(target_id) REFERENCES targets(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS clone_jobs (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL DEFAULT 'pending',
+          source_target_id TEXT NOT NULL,
+          source_bucket TEXT NOT NULL,
+          source_prefix TEXT NOT NULL DEFAULT '',
+          dest_target_id TEXT NOT NULL,
+          dest_bucket TEXT NOT NULL,
+          dest_prefix TEXT NOT NULL DEFAULT '',
+          conflict_policy TEXT NOT NULL DEFAULT 'skip',
+          is_same_target INTEGER NOT NULL DEFAULT 0,
+          enumeration_token TEXT,
+          enumeration_complete INTEGER NOT NULL DEFAULT 0,
+          total_items INTEGER NOT NULL DEFAULT 0,
+          completed_items INTEGER NOT NULL DEFAULT 0,
+          failed_items INTEGER NOT NULL DEFAULT 0,
+          skipped_items INTEGER NOT NULL DEFAULT 0,
+          total_bytes INTEGER NOT NULL DEFAULT 0,
+          transferred_bytes INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          FOREIGN KEY(source_target_id) REFERENCES targets(id) ON DELETE CASCADE,
+          FOREIGN KEY(dest_target_id) REFERENCES targets(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_clone_jobs_status ON clone_jobs(status);
+
+        CREATE TABLE IF NOT EXISTS clone_job_items (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          source_key TEXT NOT NULL,
+          dest_key TEXT NOT NULL,
+          size INTEGER NOT NULL DEFAULT 0,
+          source_etag TEXT,
+          source_last_modified TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_message TEXT,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY(job_id) REFERENCES clone_jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_clone_job_items_job_id ON clone_job_items(job_id);
+        CREATE INDEX IF NOT EXISTS idx_clone_job_items_status ON clone_job_items(job_id, status);
+
+        CREATE TABLE IF NOT EXISTS bucket_index_state (
+          target_id TEXT NOT NULL,
+          bucket TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'idle',
+          total_objects INTEGER NOT NULL DEFAULT 0,
+          indexed_objects INTEGER NOT NULL DEFAULT 0,
+          total_size INTEGER NOT NULL DEFAULT 0,
+          continuation_token TEXT,
+          last_indexed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (target_id, bucket),
+          FOREIGN KEY(target_id) REFERENCES targets(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS bucket_index_objects (
+          target_id TEXT NOT NULL,
+          bucket TEXT NOT NULL,
+          key TEXT NOT NULL,
+          parent_prefix TEXT NOT NULL DEFAULT '',
+          name TEXT NOT NULL,
+          is_folder INTEGER NOT NULL DEFAULT 0,
+          size INTEGER NOT NULL DEFAULT 0,
+          last_modified TEXT,
+          etag TEXT,
+          storage_class TEXT,
+          PRIMARY KEY (target_id, bucket, key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bio_browse
+          ON bucket_index_objects(target_id, bucket, parent_prefix, is_folder DESC, name);
+        CREATE INDEX IF NOT EXISTS idx_bio_size
+          ON bucket_index_objects(target_id, bucket, parent_prefix, is_folder DESC, size);
+        CREATE INDEX IF NOT EXISTS idx_bio_modified
+          ON bucket_index_objects(target_id, bucket, parent_prefix, is_folder DESC, last_modified);
+        CREATE INDEX IF NOT EXISTS idx_bio_search
+          ON bucket_index_objects(target_id, bucket, name);
+
         CREATE TABLE IF NOT EXISTS app_settings (
           id TEXT PRIMARY KEY DEFAULT 'default',
           theme TEXT NOT NULL DEFAULT 'dark',

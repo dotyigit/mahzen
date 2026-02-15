@@ -18,12 +18,13 @@ import { NewFolderDialog } from '@/components/new-folder-dialog'
 import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog'
 import { PresignDialog } from '@/components/presign-dialog'
 import { TransfersPanel } from '@/components/transfers-panel'
+import { CloneDialog } from '@/components/clone/clone-dialog'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { TitleBar } from '@/components/title-bar'
 import { useActiveTransferCount } from '@/lib/transfer-store'
 import { transferStore } from '@/lib/transfer-store'
-import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles, bucketStatsCacheList, bucketStatsCacheUpsert } from '@/lib/tauri'
-import type { AppSettings, SidebarBucket } from '@/lib/types'
+import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles, bucketStatsCacheList, bucketStatsCacheUpsert, indexStart, indexStateGet, indexBrowse } from '@/lib/tauri'
+import type { AppSettings, BucketIndexState, SidebarBucket } from '@/lib/types'
 import { toast } from 'sonner'
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -73,6 +74,12 @@ export default function Page() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const PAGE_SIZE = 200
 
+  // Index state
+  const [bucketIndexState, setBucketIndexState] = useState<BucketIndexState | null>(null)
+  const isIndexed = bucketIndexState?.status === 'idle' && bucketIndexState.lastIndexedAt !== null
+  const [sortField, setSortField] = useState<string>('name')
+  const [sortDir, setSortDir] = useState<string>('ASC')
+
   // Settings state
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const { setTheme } = useTheme()
@@ -90,6 +97,8 @@ export default function Page() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [presignOpen, setPresignOpen] = useState(false)
   const [presignObject, setPresignObject] = useState<S3Object | null>(null)
+  const [cloneOpen, setCloneOpen] = useState(false)
+  const [cloneSourceOverride, setCloneSourceOverride] = useState<SidebarBucket | null>(null)
 
   // Drag-drop state
   const [isDragging, setIsDragging] = useState(false)
@@ -203,7 +212,7 @@ export default function Page() {
     }
   }, [])
 
-  const loadObjects = useCallback(async (targetId: string, bucket: string, prefix: string) => {
+  const loadObjects = useCallback(async (targetId: string, bucket: string, prefix: string, useIndex?: boolean) => {
     const requestId = ++loadRequestId.current
     setIsObjectsLoading(true)
     setSelectedKeys(new Set())
@@ -211,7 +220,12 @@ export default function Page() {
     setContinuationToken(null)
     setHasMore(false)
     try {
-      const page = await targetObjectsListPage(targetId, bucket, prefix, PAGE_SIZE, null)
+      let page;
+      if (useIndex) {
+        page = await indexBrowse(targetId, bucket, prefix, sortField, sortDir, PAGE_SIZE, 0)
+      } else {
+        page = await targetObjectsListPage(targetId, bucket, prefix, PAGE_SIZE, null)
+      }
       if (requestId !== loadRequestId.current) return
       setObjects(page.entries.map(s3EntryToObject))
       setContinuationToken(page.nextContinuationToken)
@@ -227,16 +241,30 @@ export default function Page() {
         isFirstBucketLoad.current = false
       }
     }
-  }, [])
+  }, [sortField, sortDir])
 
   const loadMoreObjects = useCallback(async () => {
     if (!selectedBucket || !hasMore || !continuationToken || isLoadingMore) return
     const requestId = loadRequestId.current
     setIsLoadingMore(true)
     try {
-      const page = await targetObjectsListPage(selectedBucket.targetId, selectedBucket.name, currentPath, PAGE_SIZE, continuationToken)
+      let page;
+      if (isIndexed) {
+        const offset = parseInt(continuationToken, 10)
+        page = await indexBrowse(selectedBucket.targetId, selectedBucket.name, currentPath, sortField, sortDir, PAGE_SIZE, offset)
+      } else {
+        page = await targetObjectsListPage(selectedBucket.targetId, selectedBucket.name, currentPath, PAGE_SIZE, continuationToken)
+      }
       if (requestId !== loadRequestId.current) return
-      setObjects(prev => [...prev, ...page.entries.map(s3EntryToObject)])
+      setObjects(prev => {
+        const existingKeys = new Set(prev.map(o => o.key))
+        const newObjects = page.entries.map(s3EntryToObject).filter(o => !existingKeys.has(o.key))
+        const merged = [...prev, ...newObjects]
+        // Keep folders at the top (needed for S3 mode; index already sorted but harmless)
+        const folders = merged.filter(o => o.type === 'folder')
+        const files = merged.filter(o => o.type !== 'folder')
+        return [...folders, ...files]
+      })
       setContinuationToken(page.nextContinuationToken)
       setHasMore(page.isTruncated)
     } catch (err) {
@@ -248,16 +276,16 @@ export default function Page() {
         setIsLoadingMore(false)
       }
     }
-  }, [selectedBucket, hasMore, continuationToken, isLoadingMore, currentPath])
+  }, [selectedBucket, hasMore, continuationToken, isLoadingMore, currentPath, isIndexed, sortField, sortDir])
 
   // Auto-refresh timer
   useEffect(() => {
     if (!settings.autoRefresh || !selectedBucket) return
     const interval = setInterval(() => {
-      loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath)
+      loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath, isIndexed)
     }, 30_000)
     return () => clearInterval(interval)
-  }, [settings.autoRefresh, selectedBucket, currentPath, loadObjects])
+  }, [settings.autoRefresh, selectedBucket, currentPath, loadObjects, isIndexed])
 
   // Tauri native drag-drop listener
   useEffect(() => {
@@ -345,14 +373,69 @@ export default function Page() {
     loadAllBuckets()
   }, [loadAllBuckets])
 
+  // Load index state when bucket changes
+  useEffect(() => {
+    if (!selectedBucket || !isTauriRuntime()) {
+      setBucketIndexState(null)
+      return
+    }
+    indexStateGet(selectedBucket.targetId, selectedBucket.name)
+      .then(setBucketIndexState)
+      .catch(() => setBucketIndexState(null))
+  }, [selectedBucket])
+
+  // Listen for index events
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlistenProgress: (() => void) | undefined
+    let unlistenStatus: (() => void) | undefined
+
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<{ targetId: string; bucket: string; status: string; indexedObjects: number; totalSize: number }>(
+        'index-progress',
+        (event) => {
+          const p = event.payload
+          if (selectedBucket && p.targetId === selectedBucket.targetId && p.bucket === selectedBucket.name) {
+            setBucketIndexState(prev => prev ? { ...prev, indexedObjects: p.indexedObjects, totalSize: p.totalSize, status: p.status as BucketIndexState['status'] } : prev)
+          }
+        }
+      ).then(fn => { unlistenProgress = fn })
+
+      listen<{ targetId: string; bucket: string; status: string }>(
+        'index-status-change',
+        (event) => {
+          const p = event.payload
+          if (selectedBucket && p.targetId === selectedBucket.targetId && p.bucket === selectedBucket.name) {
+            if (p.status === 'idle') {
+              // Indexing just completed — refresh index state and reload objects from index
+              indexStateGet(p.targetId, p.bucket).then(state => {
+                setBucketIndexState(state)
+                if (state?.lastIndexedAt) {
+                  loadObjects(p.targetId, p.bucket, currentPath, true)
+                }
+              }).catch(() => {})
+            } else {
+              setBucketIndexState(prev => prev ? { ...prev, status: p.status as BucketIndexState['status'] } : prev)
+            }
+          }
+        }
+      ).then(fn => { unlistenStatus = fn })
+    })
+
+    return () => {
+      unlistenProgress?.()
+      unlistenStatus?.()
+    }
+  }, [selectedBucket, currentPath, loadObjects])
+
   // Load objects when bucket or path changes
   useEffect(() => {
     if (!selectedBucket || !isTauriRuntime()) {
       setObjects([])
       return
     }
-    loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath)
-  }, [selectedBucket, currentPath, loadObjects])
+    loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath, isIndexed)
+  }, [selectedBucket, currentPath, loadObjects, isIndexed])
 
   const filteredObjects = useMemo(() => {
     let result = objects
@@ -428,10 +511,20 @@ export default function Page() {
   const handleRefresh = useCallback(() => {
     if (!selectedBucket) return
     setIsRefreshing(true)
-    loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath).finally(() => {
+    loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath, isIndexed).finally(() => {
       setIsRefreshing(false)
     })
-  }, [selectedBucket, currentPath, loadObjects])
+  }, [selectedBucket, currentPath, loadObjects, isIndexed])
+
+  const handleIndexBucket = useCallback(async (bucket: SidebarBucket) => {
+    try {
+      const state = await indexStart(bucket.targetId, bucket.name, true)
+      setBucketIndexState(state)
+      toast.success('Indexing started', { description: `Indexing ${bucket.name}...` })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start indexing')
+    }
+  }, [])
 
   const handleRefreshBuckets = useCallback(() => {
     loadAllBuckets()
@@ -715,10 +808,26 @@ export default function Page() {
         onAddSource={() => setAddSourceOpen(true)}
         onRefresh={handleRefreshBuckets}
         onDeleteBucket={handleDeleteBucket}
+        onCloneBucket={(bucket) => {
+          setCloneSourceOverride(bucket)
+          setCloneOpen(true)
+        }}
+        onIndexBucket={handleIndexBucket}
         onSettings={() => setSettingsOpen(true)}
       />
 
       {/* Dialogs */}
+      <CloneDialog
+        open={cloneOpen}
+        onOpenChange={(open) => {
+          setCloneOpen(open)
+          if (!open) setCloneSourceOverride(null)
+        }}
+        defaultSourceTargetId={cloneSourceOverride?.targetId ?? selectedBucket?.targetId}
+        defaultSourceBucket={cloneSourceOverride?.name ?? selectedBucket?.name}
+        defaultSourcePrefix={cloneSourceOverride ? '' : currentPath}
+        onCloneStarted={() => setTransfersExpanded(true)}
+      />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onSettingsChange={setSettings} />
       <AddSourceDialog
         open={addSourceOpen}
@@ -792,6 +901,10 @@ export default function Page() {
               onNewFolder={() => setNewFolderOpen(true)}
               onDeleteSelected={handleDeleteSelected}
               onDownloadSelected={handleDownloadSelected}
+              onClone={() => setCloneOpen(true)}
+              indexStatus={bucketIndexState?.status ?? null}
+              indexedAt={bucketIndexState?.lastIndexedAt ?? null}
+              indexProgress={bucketIndexState?.indexedObjects}
             />
 
             {/* File Browser + Detail Panel */}

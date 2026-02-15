@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  Copy,
   FolderOpen,
   Moon,
   Plus,
@@ -24,9 +25,10 @@ import { useApp } from "@/contexts/app-context";
 
 type CommandPaletteProps = {
   onNewTarget: () => void;
+  onClone?: () => void;
 };
 
-export function CommandPalette({ onNewTarget }: CommandPaletteProps) {
+export function CommandPalette({ onNewTarget, onClone }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const { targets, selectTarget, setView, refreshAll } = useApp();
   const { setTheme, resolvedTheme } = useTheme();
@@ -87,6 +89,12 @@ export function CommandPalette({ onNewTarget }: CommandPaletteProps) {
             <FolderSync className="mr-2 h-4 w-4" />
             View Sync Profiles
           </CommandItem>
+          {onClone && (
+            <CommandItem onSelect={() => runAndClose(onClone)}>
+              <Copy className="mr-2 h-4 w-4" />
+              Clone Bucket
+            </CommandItem>
+          )}
         </CommandGroup>
 
         <CommandSeparator />

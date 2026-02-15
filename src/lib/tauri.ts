@@ -4,8 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AppSettings,
+  BucketIndexState,
   BucketStats,
   CachedBucketStats,
+  CloneJob,
+  CloneJobItem,
   DirectoryFileEntry,
   S3BucketSummary,
   S3ConnectionResult,
@@ -80,6 +83,45 @@ export const transferQueueUpsert = (item: TransferQueueItem) =>
 export const transferQueueDelete = (id: string) => invokeSafe<void>("transfer_queue_delete", { id });
 export const transferQueueClearTerminal = () => invokeSafe<void>("transfer_queue_clear_terminal");
 
+// Clone operations
+export const cloneStart = (
+  sourceTargetId: string, sourceBucket: string, sourcePrefix: string,
+  destTargetId: string, destBucket: string, destPrefix: string,
+  conflictPolicy: string,
+) => invokeSafe<CloneJob>("clone_start", {
+  sourceTargetId, sourceBucket, sourcePrefix,
+  destTargetId, destBucket, destPrefix, conflictPolicy,
+});
+export const clonePause = (jobId: string) => invokeSafe<void>("clone_pause", { jobId });
+export const cloneResume = (jobId: string) => invokeSafe<void>("clone_resume", { jobId });
+export const cloneCancel = (jobId: string) => invokeSafe<void>("clone_cancel", { jobId });
+export const cloneJobList = () => invokeSafe<CloneJob[]>("clone_job_list");
+export const cloneJobGet = (jobId: string) => invokeSafe<CloneJob | null>("clone_job_get", { jobId });
+export const cloneJobDelete = (jobId: string) => invokeSafe<void>("clone_job_delete", { jobId });
+export const cloneRetryFailed = (jobId: string) => invokeSafe<void>("clone_retry_failed", { jobId });
+export const cloneJobItemsList = (jobId: string, statusFilter?: string, limit?: number, offset?: number) =>
+  invokeSafe<CloneJobItem[]>("clone_job_items_list", { jobId, statusFilter, limit, offset });
+
 export const settingsGet = () => invokeSafe<AppSettings>("settings_get");
 export const settingsUpsert = (settings: AppSettings) =>
   invokeSafe<AppSettings>("settings_upsert", { settings });
+
+// Bucket Indexing
+export const indexStart = (targetId: string, bucket: string, fresh: boolean) =>
+  invokeSafe<BucketIndexState>("index_start", { targetId, bucket, fresh });
+export const indexCancel = (targetId: string, bucket: string) =>
+  invokeSafe<void>("index_cancel", { targetId, bucket });
+export const indexDelete = (targetId: string, bucket: string) =>
+  invokeSafe<void>("index_delete", { targetId, bucket });
+export const indexStateGet = (targetId: string, bucket: string) =>
+  invokeSafe<BucketIndexState | null>("index_state_get", { targetId, bucket });
+export const indexStateList = () =>
+  invokeSafe<BucketIndexState[]>("index_state_list");
+export const indexBrowse = (
+  targetId: string, bucket: string, parentPrefix: string,
+  sortField: string, sortDir: string, limit: number, offset: number,
+) => invokeSafe<S3ObjectListPage>("index_browse", {
+  targetId, bucket, parentPrefix, sortField, sortDir, limit, offset,
+});
+export const indexSearch = (targetId: string, bucket: string, query: string, limit: number) =>
+  invokeSafe<S3ObjectEntry[]>("index_search", { targetId, bucket, query, limit });

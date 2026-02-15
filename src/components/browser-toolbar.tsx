@@ -13,6 +13,9 @@ import {
   FolderPlus,
   Download,
   Trash2,
+  Copy,
+  Database,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -45,6 +48,10 @@ interface BrowserToolbarProps {
   onNewFolder: () => void
   onDeleteSelected: () => void
   onDownloadSelected: () => void
+  onClone?: () => void
+  indexStatus?: 'idle' | 'indexing' | 'error' | null
+  indexedAt?: number | null
+  indexProgress?: number
 }
 
 export function BrowserToolbar({
@@ -67,6 +74,10 @@ export function BrowserToolbar({
   onNewFolder,
   onDeleteSelected,
   onDownloadSelected,
+  onClone,
+  indexStatus,
+  indexedAt,
+  indexProgress,
 }: BrowserToolbarProps) {
   const searchRef = useRef<HTMLInputElement>(null)
   const pathParts = currentPath.split('/').filter(Boolean)
@@ -230,6 +241,22 @@ export function BrowserToolbar({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">Create folder (Ctrl+Shift+N)</TooltipContent>
             </Tooltip>
+            {onClone && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onClone}
+                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    aria-label="Clone bucket"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Clone</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">Clone bucket or prefix</TooltipContent>
+              </Tooltip>
+            )}
 
             {selectedCount > 0 && (
               <>
@@ -268,6 +295,27 @@ export function BrowserToolbar({
               </>
             )}
           </div>
+
+          {/* Index Status */}
+          {indexStatus === 'indexing' && (
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Indexing{indexProgress ? ` (${indexProgress.toLocaleString()})` : ''}...</span>
+            </div>
+          )}
+          {indexStatus === 'idle' && indexedAt && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <Database className="h-3 w-3" />
+                  <span>Indexed</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                Indexed {new Date(indexedAt * 1000).toLocaleString()}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* View Mode Toggle */}
           <div className="flex items-center rounded-md border border-border">
