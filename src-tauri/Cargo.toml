@@ -1,6 +1,6 @@
 [package]
 name = "mahzen"
-version = "2.0.7"
+version = "0.1.0"
 description = "Mahzen desktop app"
 authors = ["Mahzen Contributors"]
 license = "MIT"
