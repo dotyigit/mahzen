@@ -177,7 +177,7 @@ export default function Features({
   }, []);
 
   return (
-    <section ref={ref} id="features">
+    <section ref={ref}>
       <div className="container">
         <div className="max-w-6xl mx-auto ">
           <div className="">
@@ -295,8 +295,8 @@ export default function Features({
                 duration={12}
                 delay={9}
                 borderWidth={1.5}
-                colorFrom="hsl(var(--primary))"
-                colorTo="hsl(var(--primary)/0)"
+                colorFrom="var(--primary)"
+                colorTo="transparent"
               />
             </div>
 

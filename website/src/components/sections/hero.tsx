@@ -17,30 +17,57 @@ function HeroPill() {
       href="https://github.com/dotyigit/mahzen"
       target="_blank"
       rel="noopener noreferrer"
-      className="flex w-auto items-center space-x-2 rounded-full bg-primary/20 px-2 py-1 ring-1 ring-accent whitespace-pre"
+      className="group relative isolate inline-flex w-auto items-center gap-3 overflow-hidden rounded-full border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/15 to-primary/10 px-2 py-1 shadow-[0_12px_34px_-22px_var(--primary)] backdrop-blur-sm whitespace-pre"
       initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, ease }}
+      animate={{
+        opacity: 1,
+        y: [0, -2, 0],
+        scale: [1, 1.01, 1],
+      }}
+      whileHover={{
+        y: -3,
+        scale: 1.02,
+        boxShadow: "0 20px 45px -25px var(--primary)",
+      }}
+      transition={{
+        opacity: { duration: 0.8, ease },
+        y: { duration: 5, repeat: Infinity, ease: "easeInOut" },
+        scale: { duration: 5, repeat: Infinity, ease: "easeInOut" },
+      }}
     >
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-white/45 to-transparent dark:via-white/20"
+        initial={{ x: "-130%" }}
+        animate={{ x: "130%" }}
+        transition={{
+          duration: 2.8,
+          repeat: Infinity,
+          repeatDelay: 1.4,
+          ease: "easeInOut",
+        }}
+      />
       <div className="w-fit rounded-full bg-accent px-2 py-0.5 text-center text-xs font-medium text-primary sm:text-sm">
         Open Source
       </div>
       <p className="text-xs font-medium text-primary sm:text-sm">
         Free forever on GitHub
       </p>
-      <svg
+      <motion.svg
         width="12"
         height="12"
-        className="ml-1"
+        className="ml-1 text-primary"
         viewBox="0 0 12 12"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
+        animate={{ x: [0, 2, 0] }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
       >
         <path
           d="M8.78141 5.33312L5.20541 1.75712L6.14808 0.814453L11.3334 5.99979L6.14808 11.1851L5.20541 10.2425L8.78141 6.66645H0.666748V5.33312H8.78141Z"
-          fill="hsl(var(--primary))"
+          fill="currentColor"
         />
-      </svg>
+      </motion.svg>
     </motion.a>
   );
 }

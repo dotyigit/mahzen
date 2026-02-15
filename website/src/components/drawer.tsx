@@ -2,6 +2,7 @@ import { Icons } from "@/components/icons";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Drawer,
+  DrawerClose,
   DrawerContent,
   DrawerFooter,
   DrawerHeader,
@@ -41,24 +42,10 @@ export default function drawerDemo() {
           <nav>
             <ul className="mt-7 text-left">
               {siteConfig.header.map((item, index) => {
-                const isHash = item.href.startsWith("#");
                 const isExternal = item.href.startsWith("http");
                 return (
                   <li key={index} className="my-3">
-                    {isHash ? (
-                      <a
-                        href={item.href}
-                        className="font-semibold"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          document
-                            .querySelector(item.href)
-                            ?.scrollIntoView({ behavior: "smooth" });
-                        }}
-                      >
-                        {item.label}
-                      </a>
-                    ) : (
+                    <DrawerClose asChild>
                       <Link
                         href={item.href}
                         className="font-semibold"
@@ -68,7 +55,7 @@ export default function drawerDemo() {
                       >
                         {item.label}
                       </Link>
-                    )}
+                    </DrawerClose>
                   </li>
                 );
               })}

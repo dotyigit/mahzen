@@ -178,7 +178,7 @@ export default function Features({
   }, [data.length]);
 
   return (
-    <section ref={ref} id="features">
+    <section ref={ref}>
       <div className="container">
         <div className="max-w-6xl mx-auto">
           <div className="mx-auto my-12 h-full grid lg:grid-cols-2 gap-10 items-center">

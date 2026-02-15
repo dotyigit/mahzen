@@ -17,7 +17,7 @@ export default function Section({
 }: SectionProps) {
   const sectionId = title ? title.toLowerCase().replace(/\s+/g, "-") : id;
   return (
-    <section id={id || sectionId}>
+    <section id={id || sectionId} className="scroll-mt-24">
       <div className={className}>
         <div className="relative container mx-auto px-4 py-16 max-w-7xl">
           <div className="text-center space-y-4 pb-6 mx-auto">

@@ -196,6 +196,14 @@
 }
 
 @layer base {
+  html {
+    scroll-padding-top: 6rem;
+  }
+
+  section[id] {
+    scroll-margin-top: 6rem;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
