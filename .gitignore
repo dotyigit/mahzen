@@ -25,6 +25,7 @@
 # misc
 .DS_Store
 /file-manager-app-design
+.context/
 *.pem
 
 # debug
