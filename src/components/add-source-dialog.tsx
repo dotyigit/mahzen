@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { targetsUpsert, targetCredentialsUpsert, targetConnectionTest, targetsDelete } from '@/lib/tauri'
+import { parseEndpointForBucket } from '@/components/forms/target-form-schema'
 import type { StorageTarget, TargetCredentials } from '@/lib/types'
 
 type Provider = 'aws' | 'hetzner' | 'digitalocean' | 'cloudflare' | 'minio' | 'custom'
@@ -111,6 +112,7 @@ interface FormData {
   secretAccessKey: string
   endpoint: string
   region: string
+  scopedBucket: string
   forcePathStyle: boolean
 }
 
@@ -139,6 +141,7 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
     secretAccessKey: '',
     endpoint: '',
     region: '',
+    scopedBucket: '',
     forcePathStyle: false,
   })
 
@@ -159,6 +162,7 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
       secretAccessKey: '',
       endpoint: '',
       region: '',
+      scopedBucket: '',
       forcePathStyle: false,
     })
   }
@@ -183,19 +187,34 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
     setTestMessage('')
   }
 
-  const buildTarget = (id: string): StorageTarget => ({
-    id,
-    name: form.name || provider?.name || 'Unnamed',
-    provider: provider?.name || 'Custom S3',
-    endpoint: selectedProvider === 'aws' ? '' : form.endpoint,
-    region: form.region || null,
-    forcePathStyle: form.forcePathStyle,
-    defaultBucket: null,
-    pinnedBuckets: [],
-    skipDestructiveConfirmations: false,
-    hasCredentials: true,
-    updatedAt: Math.floor(Date.now() / 1000),
-  })
+  const buildTarget = (id: string): StorageTarget => {
+    let endpoint = selectedProvider === 'aws' ? '' : form.endpoint
+    let scopedBucket = form.scopedBucket.trim() || null
+
+    // Auto-detect bucket embedded in the endpoint URL
+    if (endpoint) {
+      const { baseEndpoint, extractedBucket } = parseEndpointForBucket(endpoint)
+      if (extractedBucket) {
+        endpoint = baseEndpoint
+        if (!scopedBucket) scopedBucket = extractedBucket
+      }
+    }
+
+    return {
+      id,
+      name: form.name || provider?.name || 'Unnamed',
+      provider: provider?.name || 'Custom S3',
+      endpoint,
+      region: form.region || null,
+      forcePathStyle: form.forcePathStyle,
+      defaultBucket: null,
+      scopedBucket,
+      pinnedBuckets: [],
+      skipDestructiveConfirmations: false,
+      hasCredentials: true,
+      updatedAt: Math.floor(Date.now() / 1000),
+    }
+  }
 
   const buildCredentials = (): TargetCredentials => ({
     accessKeyId: form.accessKeyId,
@@ -422,7 +441,7 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
                       id="region"
                       value={form.region}
                       onChange={(e) => setForm({ ...form, region: e.target.value })}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      className="h-[34px] w-full rounded-md border border-border bg-background px-3 text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     >
                       {provider.regions.map((r) => (
                         <option key={r} value={r}>{r}</option>
@@ -439,6 +458,24 @@ export function AddSourceDialog({ open, onOpenChange, onSourceAdded }: AddSource
                     />
                   )}
                 </div>
+              </div>
+
+              {/* Bucket Scope */}
+              <div className="space-y-1.5">
+                <label htmlFor="scoped-bucket" className="text-xs font-medium text-foreground">
+                  Bucket Scope
+                </label>
+                <input
+                  id="scoped-bucket"
+                  type="text"
+                  placeholder="leave empty for all buckets"
+                  value={form.scopedBucket}
+                  onChange={(e) => setForm({ ...form, scopedBucket: e.target.value })}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Restrict this source to a single bucket. Use this when your keys only have access to one bucket.
+                </p>
               </div>
 
               {/* Options */}

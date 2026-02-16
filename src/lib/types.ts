@@ -6,6 +6,7 @@ export type StorageTarget = {
   region: string | null;
   forcePathStyle: boolean;
   defaultBucket: string | null;
+  scopedBucket: string | null;
   pinnedBuckets: string[];
   skipDestructiveConfirmations: boolean;
   hasCredentials: boolean;

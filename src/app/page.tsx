@@ -23,7 +23,7 @@ import { SettingsDialog } from '@/components/settings-dialog'
 import { TitleBar } from '@/components/title-bar'
 import { useActiveTransferCount } from '@/lib/transfer-store'
 import { transferStore } from '@/lib/transfer-store'
-import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles, bucketStatsCacheList, bucketStatsCacheUpsert, indexStart, indexStateGet, indexBrowse } from '@/lib/tauri'
+import { targetsList, targetBucketsList, targetObjectsListPage, targetObjectsListRecursive, targetObjectsDelete, targetBucketStats, isTauriRuntime, settingsGet, listDirectoryFiles, bucketStatsCacheList, bucketStatsCacheUpsert, indexStart, indexStateGet, indexBrowse, indexSearch } from '@/lib/tauri'
 import type { AppSettings, BucketIndexState, SidebarBucket } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -79,6 +79,12 @@ export default function Page() {
   const isIndexed = bucketIndexState?.status === 'idle' && bucketIndexState.lastIndexedAt !== null
   const [sortField, setSortField] = useState<string>('name')
   const [sortDir, setSortDir] = useState<string>('ASC')
+
+  // Index search state
+  const [isSearchMode, setIsSearchMode] = useState(false)
+  const [searchResults, setSearchResults] = useState<S3Object[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Settings state
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -437,19 +443,55 @@ export default function Page() {
     loadObjects(selectedBucket.targetId, selectedBucket.name, currentPath, isIndexed)
   }, [selectedBucket, currentPath, loadObjects, isIndexed])
 
+  // Debounced index search
+  useEffect(() => {
+    if (!isIndexed || !selectedBucket || !searchQuery.trim()) {
+      setIsSearchMode(false)
+      setSearchResults([])
+      setIsSearching(false)
+      return
+    }
+
+    setIsSearching(true)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const results = await indexSearch(selectedBucket.targetId, selectedBucket.name, searchQuery.trim(), 200)
+        setSearchResults(results.map(s3EntryToObject))
+        setIsSearchMode(true)
+      } catch {
+        setIsSearchMode(false)
+        setSearchResults([])
+      } finally {
+        setIsSearching(false)
+      }
+    }, 250)
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    }
+  }, [searchQuery, isIndexed, selectedBucket])
+
   const filteredObjects = useMemo(() => {
+    // When in search mode (indexed bucket + active query), show search results
+    if (isSearchMode && searchResults.length > 0) {
+      return searchResults
+    }
+
     let result = objects
     // Filter hidden files (starting with .)
     if (!settings.showHidden) {
       result = result.filter((item) => !item.name.startsWith('.'))
     }
-    if (searchQuery) {
+    // Client-side filter for non-indexed buckets
+    if (searchQuery && !isIndexed) {
       result = result.filter((item) =>
         item.name.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     }
     return result
-  }, [objects, searchQuery, settings.showHidden])
+  }, [objects, searchQuery, settings.showHidden, isSearchMode, searchResults, isIndexed])
 
   const handleSelectBucket = useCallback((bucket: SidebarBucket) => {
     // Remember current path for the old bucket
@@ -905,6 +947,9 @@ export default function Page() {
               indexStatus={bucketIndexState?.status ?? null}
               indexedAt={bucketIndexState?.lastIndexedAt ?? null}
               indexProgress={bucketIndexState?.indexedObjects}
+              isSearchMode={isSearchMode}
+              isSearching={isSearching}
+              searchResultCount={isSearchMode ? searchResults.length : undefined}
             />
 
             {/* File Browser + Detail Panel */}
@@ -931,9 +976,10 @@ export default function Page() {
                     sizeFormat={settings.sizeFormat as 'binary' | 'decimal'}
                     fontSize={settings.fontSize}
                     compactMode={settings.compactMode}
-                    hasMore={hasMore}
+                    hasMore={hasMore && !isSearchMode}
                     isLoadingMore={isLoadingMore}
                     onLoadMore={loadMoreObjects}
+                    isSearchMode={isSearchMode}
                   />
                 )}
               </div>

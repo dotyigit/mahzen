@@ -113,11 +113,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (effectiveTargetId) void loadBuckets(effectiveTargetId);
   }, [effectiveTargetId, loadBuckets]);
 
-  const selectTarget = useCallback((id: string) => {
-    setSelectedTargetId(id);
-    setSelectedBucket(null);
-    setView("buckets");
-  }, []);
+  const selectTarget = useCallback(
+    (id: string) => {
+      setSelectedTargetId(id);
+      setSelectedBucket(null);
+
+      const target = targets.find((t) => t.id === id);
+      // For scoped-bucket targets, skip bucket listing and go directly to objects
+      if (target?.scopedBucket) {
+        setSelectedBucket(target.scopedBucket);
+        setView("objects");
+      } else {
+        setView("buckets");
+      }
+    },
+    [targets],
+  );
 
   const selectBucket = useCallback((name: string | null) => {
     setSelectedBucket(name);

@@ -17,6 +17,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
           region TEXT,
           force_path_style INTEGER NOT NULL DEFAULT 1,
           default_bucket TEXT,
+          scoped_bucket TEXT,
           pinned_buckets_json TEXT NOT NULL DEFAULT '[]',
           skip_destructive_confirmations INTEGER NOT NULL DEFAULT 0,
           created_at INTEGER NOT NULL,
@@ -200,6 +201,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         );
         "#,
     )?;
+
+    // v2: add scoped_bucket column for single-bucket targets
+    let has_scoped_bucket: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('targets') WHERE name = 'scoped_bucket'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)?;
+
+    if !has_scoped_bucket {
+        conn.execute_batch("ALTER TABLE targets ADD COLUMN scoped_bucket TEXT;")?;
+    }
 
     Ok(())
 }

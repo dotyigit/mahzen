@@ -16,6 +16,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -27,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { useApp } from "@/contexts/app-context";
 import { providerOptions } from "@/lib/constants";
 import { nowEpoch } from "@/lib/format";
-import { targetFormSchema, normalizeEndpoint, type TargetFormValues } from "@/components/forms/target-form-schema";
+import { targetFormSchema, normalizeEndpoint, parseEndpointForBucket, type TargetFormValues } from "@/components/forms/target-form-schema";
 import type { StorageTarget, TargetCredentials } from "@/lib/types";
 
 type TargetFormDialogProps = {
@@ -49,6 +50,7 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
       endpoint: "",
       region: "us-east-1",
       defaultBucket: "",
+      scopedBucket: "",
       pinnedBuckets: "",
       forcePathStyle: true,
       skipDestructiveConfirmations: false,
@@ -70,6 +72,7 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
         endpoint: editTarget.endpoint,
         region: editTarget.region ?? "us-east-1",
         defaultBucket: editTarget.defaultBucket ?? "",
+        scopedBucket: editTarget.scopedBucket ?? "",
         pinnedBuckets: editTarget.pinnedBuckets.join(", "),
         forcePathStyle: editTarget.forcePathStyle,
         skipDestructiveConfirmations: editTarget.skipDestructiveConfirmations,
@@ -96,6 +99,7 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
         endpoint: "",
         region: "us-east-1",
         defaultBucket: "",
+        scopedBucket: "",
         pinnedBuckets: "",
         forcePathStyle: true,
         skipDestructiveConfirmations: false,
@@ -107,10 +111,35 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
     }
   }, [open, editTarget, form, getTargetCredentials]);
 
+  const handleEndpointBlur = () => {
+    const raw = form.getValues("endpoint");
+    if (!raw.trim()) return;
+
+    const { baseEndpoint, extractedBucket } = parseEndpointForBucket(raw);
+
+    if (extractedBucket) {
+      form.setValue("endpoint", baseEndpoint);
+      // Only auto-fill scoped bucket if it's currently empty
+      if (!form.getValues("scopedBucket").trim()) {
+        form.setValue("scopedBucket", extractedBucket);
+      }
+      toast.info(`Detected bucket "${extractedBucket}" in URL — moved to Bucket Scope.`);
+    }
+  };
+
   const onSubmit = async (values: TargetFormValues) => {
     setBusy(true);
     try {
-      const endpoint = normalizeEndpoint(values.endpoint);
+      let endpoint = normalizeEndpoint(values.endpoint);
+      let scopedBucket = values.scopedBucket?.trim() || null;
+
+      // Final safety: parse endpoint again in case user pasted bucket-scoped URL directly
+      const { baseEndpoint, extractedBucket } = parseEndpointForBucket(endpoint);
+      if (extractedBucket) {
+        endpoint = baseEndpoint;
+        if (!scopedBucket) scopedBucket = extractedBucket;
+      }
+
       const id = values.id ?? crypto.randomUUID();
 
       const target: StorageTarget = {
@@ -121,6 +150,7 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
         region: values.region?.trim() || null,
         forcePathStyle: values.forcePathStyle,
         defaultBucket: values.defaultBucket?.trim() || null,
+        scopedBucket,
         pinnedBuckets: (values.pinnedBuckets ?? "")
           .split(",")
           .map((b) => b.trim())
@@ -205,8 +235,19 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
                 <FormItem>
                   <FormLabel>Endpoint</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="https://s3.us-east-1.amazonaws.com" disabled={busy} />
+                    <Input
+                      {...field}
+                      placeholder="https://fra1.digitaloceanspaces.com"
+                      disabled={busy}
+                      onBlur={() => {
+                        field.onBlur();
+                        handleEndpointBlur();
+                      }}
+                    />
                   </FormControl>
+                  <FormDescription>
+                    Paste a bucket URL (e.g. mybucket.fra1.digitaloceanspaces.com) and the bucket will be auto-detected.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -228,18 +269,32 @@ export function TargetFormDialog({ open, onOpenChange, editTarget }: TargetFormD
               />
               <FormField
                 control={form.control}
-                name="defaultBucket"
+                name="scopedBucket"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Default Bucket</FormLabel>
+                    <FormLabel>Bucket Scope</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="optional" disabled={busy} />
+                      <Input {...field} placeholder="leave empty for all buckets" disabled={busy} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="defaultBucket"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Default Bucket</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="optional — auto-navigate on select" disabled={busy} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

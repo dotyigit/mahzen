@@ -31,6 +31,7 @@ pub struct StorageTarget {
     pub region: Option<String>,
     pub force_path_style: bool,
     pub default_bucket: Option<String>,
+    pub scoped_bucket: Option<String>,
     pub pinned_buckets: Vec<String>,
     pub skip_destructive_confirmations: bool,
     #[serde(default)]

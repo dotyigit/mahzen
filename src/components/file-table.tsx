@@ -59,6 +59,7 @@ interface FileTableProps {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
+  isSearchMode?: boolean
 }
 
 export function FileTable({
@@ -82,6 +83,7 @@ export function FileTable({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  isSearchMode = false,
 }: FileTableProps) {
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
@@ -110,7 +112,7 @@ export function FileTable({
     return sorted
   }, [objects, sortField, sortDirection])
 
-  const rowHeight = compactMode ? 28 : 36
+  const rowHeight = isSearchMode ? (compactMode ? 38 : 48) : (compactMode ? 28 : 36)
 
   const rowVirtualizer = useVirtualizer({
     count: sortedObjects.length,
@@ -315,7 +317,10 @@ export function FileTable({
                         {showFileIcons && <FileIcon name={obj.name} type={obj.type} className={cn('shrink-0', compactMode ? 'h-6 w-6' : 'h-8 w-8')} />}
                         <div className="w-full min-w-0">
                           <p className="truncate font-medium text-foreground" style={{ fontSize }}>{obj.name}</p>
-                          {obj.type === 'file' && (
+                          {isSearchMode && obj.key !== obj.name && (
+                            <p className="truncate text-muted-foreground" style={{ fontSize: Math.max(fontSize - 2, 9) }}>{obj.key}</p>
+                          )}
+                          {obj.type === 'file' && !isSearchMode && (
                             <p className="mt-0.5 text-muted-foreground" style={{ fontSize: fontSize - 2 }}>{formatBytes(obj.size, sizeFormat)}</p>
                           )}
                         </div>
@@ -450,17 +455,24 @@ export function FileTable({
                       aria-label={`Select ${obj.name}`}
                     />
                   </div>
-                  <div className="flex flex-1 items-center gap-2.5 pr-4">
+                  <div className="flex flex-1 items-center gap-2.5 overflow-hidden pr-4">
                     {showFileIcons && <FileIcon name={obj.name} type={obj.type} />}
-                    <span
-                      className={cn(
-                        'truncate font-medium',
-                        obj.type === 'folder' ? 'text-foreground' : 'text-foreground/90',
+                    <div className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          'block truncate font-medium',
+                          obj.type === 'folder' ? 'text-foreground' : 'text-foreground/90',
+                        )}
+                        style={{ fontSize }}
+                      >
+                        {obj.name}
+                      </span>
+                      {isSearchMode && obj.key !== obj.name && (
+                        <span className="block truncate text-muted-foreground" style={{ fontSize: Math.max(fontSize - 2, 9) }}>
+                          {obj.key}
+                        </span>
                       )}
-                      style={{ fontSize }}
-                    >
-                      {obj.name}
-                    </span>
+                    </div>
                   </div>
                   <div className="w-24 flex-shrink-0 pr-4">
                     <span className="font-mono text-muted-foreground" style={{ fontSize }}>

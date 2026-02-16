@@ -277,7 +277,9 @@ pub fn browse(
     })
 }
 
-/// Search objects by name pattern within an indexed bucket.
+/// Search objects by name or key pattern within an indexed bucket.
+/// Matches against both the file name and the full key (path), so queries
+/// like "image.png" and "assets/images/image.png" both work.
 pub fn search(
     storage: &SqliteStorage,
     target_id: &str,
@@ -291,8 +293,10 @@ pub fn search(
         r#"
         SELECT key, name, is_folder, size, last_modified, etag, storage_class
         FROM bucket_index_objects
-        WHERE target_id = ?1 AND bucket = ?2 AND name LIKE ?3
-        ORDER BY is_folder DESC, name ASC
+        WHERE target_id = ?1 AND bucket = ?2
+          AND (name LIKE ?3 OR key LIKE ?3)
+          AND is_folder = 0
+        ORDER BY name ASC
         LIMIT ?4
         "#,
     )?;

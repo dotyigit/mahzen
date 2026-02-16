@@ -13,7 +13,8 @@ pub fn list(storage: &SqliteStorage) -> Result<Vec<StorageTarget>> {
           id, name, provider, endpoint, region,
           force_path_style, default_bucket, pinned_buckets_json,
           skip_destructive_confirmations, updated_at,
-          EXISTS(SELECT 1 FROM target_credentials c WHERE c.target_id = targets.id) AS has_credentials
+          EXISTS(SELECT 1 FROM target_credentials c WHERE c.target_id = targets.id) AS has_credentials,
+          scoped_bucket
         FROM targets
         ORDER BY name COLLATE NOCASE ASC
         "#,
@@ -31,6 +32,7 @@ pub fn list(storage: &SqliteStorage) -> Result<Vec<StorageTarget>> {
             region: row.get(4)?,
             force_path_style: row.get::<_, i64>(5)? == 1,
             default_bucket: row.get(6)?,
+            scoped_bucket: row.get(11)?,
             pinned_buckets,
             skip_destructive_confirmations: row.get::<_, i64>(8)? == 1,
             has_credentials: row.get::<_, i64>(10)? == 1,
@@ -50,9 +52,9 @@ pub fn upsert(storage: &SqliteStorage, target: StorageTarget) -> Result<StorageT
         r#"
         INSERT INTO targets (
           id, name, provider, endpoint, region, force_path_style, default_bucket,
-          pinned_buckets_json, skip_destructive_confirmations, created_at, updated_at
+          scoped_bucket, pinned_buckets_json, skip_destructive_confirmations, created_at, updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           provider = excluded.provider,
@@ -60,6 +62,7 @@ pub fn upsert(storage: &SqliteStorage, target: StorageTarget) -> Result<StorageT
           region = excluded.region,
           force_path_style = excluded.force_path_style,
           default_bucket = excluded.default_bucket,
+          scoped_bucket = excluded.scoped_bucket,
           pinned_buckets_json = excluded.pinned_buckets_json,
           skip_destructive_confirmations = excluded.skip_destructive_confirmations,
           updated_at = excluded.updated_at
@@ -72,6 +75,7 @@ pub fn upsert(storage: &SqliteStorage, target: StorageTarget) -> Result<StorageT
             target.region,
             if target.force_path_style { 1 } else { 0 },
             target.default_bucket,
+            target.scoped_bucket,
             pinned_buckets_json.to_string(),
             if target.skip_destructive_confirmations { 1 } else { 0 },
             now,
@@ -94,7 +98,8 @@ pub fn find_by_id(storage: &SqliteStorage, id: &str) -> Result<Option<StorageTar
           id, name, provider, endpoint, region,
           force_path_style, default_bucket, pinned_buckets_json,
           skip_destructive_confirmations, updated_at,
-          EXISTS(SELECT 1 FROM target_credentials c WHERE c.target_id = targets.id) AS has_credentials
+          EXISTS(SELECT 1 FROM target_credentials c WHERE c.target_id = targets.id) AS has_credentials,
+          scoped_bucket
         FROM targets
         WHERE id = ?1
         LIMIT 1
@@ -114,6 +119,7 @@ pub fn find_by_id(storage: &SqliteStorage, id: &str) -> Result<Option<StorageTar
             region: row.get(4)?,
             force_path_style: row.get::<_, i64>(5)? == 1,
             default_bucket: row.get(6)?,
+            scoped_bucket: row.get(11)?,
             pinned_buckets,
             skip_destructive_confirmations: row.get::<_, i64>(8)? == 1,
             updated_at: row.get(9)?,

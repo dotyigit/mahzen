@@ -52,6 +52,9 @@ interface BrowserToolbarProps {
   indexStatus?: 'idle' | 'indexing' | 'error' | null
   indexedAt?: number | null
   indexProgress?: number
+  isSearchMode?: boolean
+  isSearching?: boolean
+  searchResultCount?: number
 }
 
 export function BrowserToolbar({
@@ -78,6 +81,9 @@ export function BrowserToolbar({
   indexStatus,
   indexedAt,
   indexProgress,
+  isSearchMode,
+  isSearching,
+  searchResultCount,
 }: BrowserToolbarProps) {
   const searchRef = useRef<HTMLInputElement>(null)
   const pathParts = currentPath.split('/').filter(Boolean)
@@ -195,16 +201,30 @@ export function BrowserToolbar({
           </div>
 
           {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <div className="relative flex items-center gap-1.5">
+            {isSearching ? (
+              <Loader2 className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            )}
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search files... (Ctrl+F)"
+              placeholder={indexStatus === 'idle' && indexedAt ? "Deep search... (Ctrl+F)" : "Search files... (Ctrl+F)"}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-52 rounded-md border border-border bg-background/50 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:w-64 transition-all duration-200"
+              className={cn(
+                "w-52 rounded-md border bg-background/50 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:w-64 transition-all duration-200",
+                isSearchMode
+                  ? "border-primary/50 ring-1 ring-primary/30"
+                  : "border-border focus:border-primary/50 focus:ring-primary/30"
+              )}
             />
+            {isSearchMode && searchResultCount !== undefined && (
+              <span className="whitespace-nowrap text-[10px] text-muted-foreground">
+                {searchResultCount} result{searchResultCount !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
         </TooltipProvider>
       </div>

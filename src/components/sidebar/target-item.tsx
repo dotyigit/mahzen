@@ -34,15 +34,22 @@ export function TargetItem({ target, isSelected, onSelect, onEdit, onTest, onRef
         >
           <div className="flex w-full items-center justify-between gap-2">
             <span className="truncate text-sm font-semibold">{target.name}</span>
-            {target.hasCredentials ? (
-              <Badge variant="outline" className="shrink-0 rounded-md border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0">
-                ready
-              </Badge>
-            ) : (
-              <Badge variant="destructive" className="shrink-0 rounded-md text-[10px] px-1.5 py-0">
-                no keys
-              </Badge>
-            )}
+            <div className="flex items-center gap-1">
+              {target.scopedBucket && (
+                <Badge variant="outline" className="shrink-0 rounded-md border-sky-300 bg-sky-500/10 text-sky-700 dark:border-sky-700 dark:text-sky-400 text-[10px] px-1.5 py-0">
+                  {target.scopedBucket}
+                </Badge>
+              )}
+              {target.hasCredentials ? (
+                <Badge variant="outline" className="shrink-0 rounded-md border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0">
+                  ready
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="shrink-0 rounded-md text-[10px] px-1.5 py-0">
+                  no keys
+                </Badge>
+              )}
+            </div>
           </div>
           <span className="w-full truncate text-xs text-muted-foreground">{target.endpoint}</span>
           {target.pinnedBuckets.length > 0 && (

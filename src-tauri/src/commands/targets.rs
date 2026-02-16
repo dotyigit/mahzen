@@ -39,6 +39,15 @@ pub async fn target_buckets_list(state: State<'_, AppState>, target_id: String) 
     let target = targets_repo::find_by_id(&state.storage, &target_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Target not found.".to_string())?;
+
+    // If scoped to a single bucket, return it directly without calling ListBuckets
+    if let Some(ref bucket_name) = target.scoped_bucket {
+        return Ok(vec![S3BucketSummary {
+            name: bucket_name.clone(),
+            created_at: None,
+        }]);
+    }
+
     let credentials = credentials_repo::get(&state.storage, &target_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Credentials not found for target.".to_string())?;
@@ -57,6 +66,19 @@ pub async fn target_connection_test(
     let credentials = credentials_repo::get(&state.storage, &target_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Credentials not found for target.".to_string())?;
+
+    // For scoped-bucket targets, test with ListObjects instead of ListBuckets
+    if let Some(ref bucket_name) = target.scoped_bucket {
+        s3::list_objects_page(&target, &credentials, bucket_name, "", 1, None)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        return Ok(S3ConnectionResult {
+            ok: true,
+            message: format!("Connected to bucket '{}'.", bucket_name),
+            bucket_count: 1,
+        });
+    }
 
     let buckets = s3::list_buckets(&target, &credentials)
         .await

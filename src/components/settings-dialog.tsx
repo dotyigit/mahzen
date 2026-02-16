@@ -16,7 +16,6 @@ import {
   ChevronRight,
   Download,
   Loader2,
-  Shield,
 } from 'lucide-react'
 import {
   Dialog,
@@ -639,8 +638,8 @@ function AboutTab() {
           {[
             { label: 'Source Code', icon: Github, href: 'https://github.com/dotyigit/mahzen' },
             { label: 'Release Notes', icon: Download, href: 'https://github.com/dotyigit/mahzen/releases' },
-            { label: 'Report an Issue', icon: ExternalLink, href: 'https://github.com/dotyigit/mahzen/issues' },
-            { label: 'Website', icon: Shield, href: 'https://mahzen.dev' },
+            { label: 'Report a Bug', icon: ExternalLink, href: 'https://github.com/dotyigit/mahzen/issues' },
+            { label: 'Discussions', icon: ExternalLink, href: 'https://github.com/dotyigit/mahzen/discussions' },
           ].map((link) => (
             <a
               key={link.label}
